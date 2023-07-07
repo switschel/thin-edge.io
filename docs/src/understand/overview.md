@@ -16,11 +16,11 @@ that can be easily combined with application-specific extensions.
 IoT agents typically run on the edge, at the frontier between IT cloud computing and OT industrial equipment.
 They act as gateways between the cloud and the devices embedded into smart equipment, machines or plants.
 The main functions and challenges are to:
-- establish a secure and reliable connection from the cloud to a fleet of smart equipment
-- provide a uniform way to monitor and control these assets despite the diversity of hardware and protocols
-- collect telemetry and monitoring data from the various sensors and processes running on the devices
-- process data with local analytics tools and push the relevant subset to the cloud
-- monitor, configure and update agents and the attached devices from the cloud.
+- establish a **secure and reliable connection** from the cloud to a fleet of smart equipment
+- provide a uniform way to **monitor and control** these assets despite the diversity of hardware and protocols
+- **collect telemetry** and monitoring data from the various sensors and processes running on the devices
+- **process data with local analytics tools** and push the relevant subset to the cloud
+- **monitor, configure and update agents** and the attached devices from the cloud.
 
 ## How
 
@@ -28,16 +28,19 @@ To implement these functions, thin-edge proposes to design an IoT agent using a 
 which are deployed on the main gateway device as well as the set of interconnected embedded devices that form the equipment.
 
 A typical thin-edge setup consists of the following components:
-- a local MQTT broker that is used as a message bus between all the components of the equipment
-- an MQTT bridge connection between the local message bus and the remote cloud end-point
-- thin-edge (out-of-the-box) device management services which provide features such as monitoring, configuration and software management
-- equipment-specific services that interact with the hardware that make the equipment,
+- a **local MQTT broker** that is used as a message bus between all the components of the equipment
+- an **MQTT bridge connection** between the local message bus and the remote cloud end-point
+- **thin-edge (out-of-the-box) device management services** which provide features such as monitoring, configuration and software management
+- **equipment-specific services** that interact with the hardware that make the equipment,
   publishing the collected data and forwarding operation requests on the MQTT bus as well as abstracting various device specific protocols
-- a cloud-specific service that maps the messages exchanged on the local bus with messages sent to or received from the cloud
+- **cloud-specific services** that map the messages exchanged on the local bus with messages sent to or received from clouds
 
 The first point to note is that all these software components can be provided by independent vendors:
-by the thin-edge open-source project, by the equipment maker, by the IoT application developer
-or even by cloud providers, hardware manufacturers and protocol implementors. 
+- by the thin-edge open-source project,
+- by the equipment maker,
+- by the IoT application developer
+- or even by cloud providers, hardware manufacturers and protocol implementors.
+
 Their interoperability is based on:
 - ubiquitous protocols: JSON over MQTT and HTTP,
 - dynamic and loose inter-process communication with no constraint on programming tools nor software placement,
