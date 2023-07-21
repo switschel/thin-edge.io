@@ -1,6 +1,20 @@
-use super::{BridgeConfig, ConnectError};
-use certificate::parse_root_certificate::*;
-use rumqttc::{self, Client, Event, Incoming, MqttOptions, Outgoing, Packet, QoS, Transport};
+use super::BridgeConfig;
+use super::ConnectError;
+use crate::cli::connect::CONNECTION_TIMEOUT;
+use certificate::parse_root_certificate::create_tls_config;
+use rumqttc::tokio_rustls::rustls::AlertDescription;
+use rumqttc::tokio_rustls::rustls::Error;
+use rumqttc::Client;
+use rumqttc::ConnectionError;
+use rumqttc::Event;
+use rumqttc::Incoming;
+use rumqttc::MqttOptions;
+use rumqttc::Outgoing;
+use rumqttc::Packet;
+use rumqttc::QoS;
+use rumqttc::TlsError;
+use rumqttc::Transport;
+use rumqttc::{self};
 
 // Connect directly to the c8y cloud over mqtt and publish device create message.
 pub fn create_device_with_direct_connection(
@@ -15,18 +29,13 @@ pub fn create_device_with_direct_connection(
 
     let mut mqtt_options = MqttOptions::new(bridge_config.remote_clientid.clone(), host[0], 8883);
     mqtt_options.set_keep_alive(std::time::Duration::from_secs(5));
+    mqtt_options.set_connection_timeout(CONNECTION_TIMEOUT.as_secs());
 
-    let mut tls_config = create_tls_config();
-
-    load_root_certs(
-        &mut tls_config.root_store,
+    let tls_config = create_tls_config(
         bridge_config.bridge_root_cert_path.clone().into(),
+        bridge_config.bridge_keyfile.clone().into(),
+        bridge_config.bridge_certfile.clone().into(),
     )?;
-
-    let pvt_key = read_pvt_key(bridge_config.bridge_keyfile.clone().into())?;
-    let cert_chain = read_cert_chain(bridge_config.bridge_certfile.clone().into())?;
-
-    let _ = tls_config.set_single_client_cert(cert_chain, pvt_key);
     mqtt_options.set_transport(Transport::tls_with_config(tls_config.into()));
 
     let (mut client, mut connection) = Client::new(mqtt_options, 10);
@@ -36,7 +45,7 @@ pub fn create_device_with_direct_connection(
     let mut device_create_try: usize = 0;
     for event in connection.iter() {
         match event {
-            Ok(Event::Incoming(Packet::SubAck(_))) => {
+            Ok(Event::Incoming(Packet::SubAck(_) | Packet::PubAck(_) | Packet::PubComp(_))) => {
                 publish_device_create_message(
                     &mut client,
                     &bridge_config.remote_clientid.clone(),
@@ -67,6 +76,45 @@ pub fn create_device_with_direct_connection(
             Ok(Event::Incoming(Incoming::Disconnect)) => {
                 eprintln!("ERROR: Disconnected");
                 break;
+            }
+            Err(ConnectionError::Io(err)) if err.kind() == std::io::ErrorKind::InvalidData => {
+                if let Some(Error::AlertReceived(alert_description)) = err
+                    .get_ref()
+                    .and_then(|custom_err| custom_err.downcast_ref::<Error>())
+                {
+                    if let AlertDescription::CertificateUnknown = alert_description {
+                        // Either the device cert is not uploaded to c8y or
+                        // another cert is set in device.cert_path
+                        eprintln!("The device certificate is not trusted by Cumulocity.");
+                        return Err(ConnectError::ConnectionCheckError);
+                    } else if let AlertDescription::HandshakeFailure = alert_description {
+                        // Non-paired private key is set in device.key_path
+                        eprintln!(
+                            "The private key is not paired with the certificate. Check your 'device.key_path'."
+                        );
+                        return Err(ConnectError::ConnectionCheckError);
+                    }
+                }
+                eprintln!("ERROR: {:?}", err);
+                return Err(ConnectError::ConnectionCheckError);
+            }
+            Err(ConnectionError::Tls(TlsError::Io(err)))
+                if err.kind() == std::io::ErrorKind::InvalidData =>
+            {
+                match err
+                    .get_ref()
+                    .and_then(|custom_err| custom_err.downcast_ref::<Error>())
+                {
+                    Some(Error::InvalidCertificateData(description))
+                        if description == "invalid peer certificate: UnknownIssuer" =>
+                    {
+                        eprintln!("Cumulocity certificate is not trusted by the device. Check your 'c8y.root_cert_path'.");
+                    }
+                    _ => {
+                        eprintln!("ERROR: {:?}", err);
+                    }
+                }
+                return Err(ConnectError::ConnectionCheckError);
             }
             Err(err) => {
                 eprintln!("ERROR: {:?}", err);

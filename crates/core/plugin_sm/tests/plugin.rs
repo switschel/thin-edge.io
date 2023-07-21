@@ -1,14 +1,23 @@
 #[cfg(test)]
 mod tests {
 
-    use agent_interface::{SoftwareError, SoftwareModule, SoftwareModuleUpdate};
-    use plugin_sm::plugin::{deserialize_module_info, ExternalPluginCommand, Plugin};
+    use plugin_sm::plugin::deserialize_module_info;
+    use plugin_sm::plugin::ExternalPluginCommand;
+    use plugin_sm::plugin::Plugin;
     use serial_test::serial;
-    use std::{fs, io::Write, path::PathBuf, str::FromStr};
+    use std::fs;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::str::FromStr;
+    use tedge_api::SoftwareError;
+    use tedge_api::SoftwareModule;
+    use tedge_api::SoftwareModuleUpdate;
+    use tedge_config::TEdgeConfigLocation;
     use test_case::test_case;
     use tokio::fs::File;
     use tokio::io::BufWriter;
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[tokio::test]
     #[serial]
     async fn plugin_get_command_prepare() {
@@ -23,6 +32,7 @@ mod tests {
         assert_eq!(res, Ok(()));
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[tokio::test]
     #[serial]
     async fn plugin_get_command_finalize() {
@@ -39,48 +49,42 @@ mod tests {
 
     #[test_case("abc", Some("1.0")  ; "with version")]
     #[test_case("abc",None  ; "without version")]
-    fn desrialize_plugin_result(module_name: &str, version: Option<&str>) {
+    fn deserialize_plugin_result(module_name: &str, version: Option<&str>) {
         let mut data = String::from(module_name);
-        match version {
-            Some(v) => {
-                data.push_str("\t");
-                data.push_str(v)
-            }
-            None => {}
+        if let Some(v) = version {
+            data.push('\t');
+            data.push_str(v);
         }
 
-        let mut expected_software_list = Vec::new();
-
-        expected_software_list.push(SoftwareModule {
+        let expected_software_list = vec![SoftwareModule {
             name: module_name.into(),
             version: version.map(|s| s.to_string()),
             module_type: Some("test".into()),
             file_path: None,
             url: None,
-        });
+        }];
 
         let software_list = deserialize_module_info("test".into(), data.as_bytes()).unwrap();
         assert_eq!(expected_software_list, software_list);
     }
 
     #[test]
-    fn desrialize_plugin_result_with_trailing_tab() {
+    fn deserialize_plugin_result_with_trailing_tab() {
         let data = "abc\t";
 
-        let mut expected_software_list = Vec::new();
-
-        expected_software_list.push(SoftwareModule {
+        let expected_software_list = vec![SoftwareModule {
             name: "abc".into(),
             version: None,
             module_type: Some("test".into()),
             file_path: None,
             url: None,
-        });
+        }];
 
         let software_list = deserialize_module_info("test".into(), data.as_bytes()).unwrap();
         assert_eq!(expected_software_list, software_list);
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[tokio::test]
     #[serial]
     async fn plugin_get_command_list_with_version() {
@@ -95,7 +99,7 @@ mod tests {
 
         // Add content of the expected stdout to the dummy plugin.
         let content = "abc\t1.0";
-        let _a = file.write_all(content.as_bytes()).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
 
         // Create expected response.
         let module = SoftwareModule {
@@ -116,6 +120,7 @@ mod tests {
         assert_eq!(res.unwrap(), expected_response);
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[tokio::test]
     #[serial]
     async fn plugin_get_command_list_without_version() {
@@ -130,7 +135,7 @@ mod tests {
 
         // Add content of the expected stdout to the dummy plugin.
         let content = "abc";
-        let _a = file.write_all(content.as_bytes()).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
 
         // Create expected response.
         let module = SoftwareModule {
@@ -151,6 +156,7 @@ mod tests {
         assert_eq!(res.unwrap(), expected_response);
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[tokio::test]
     #[serial]
     async fn plugin_get_command_install() {
@@ -165,7 +171,7 @@ mod tests {
 
         // Add content of the expected stdout to the dummy plugin.
         let content = "abc\t1.0";
-        let _a = file.write_all(content.as_bytes()).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
 
         // Create module to perform plugin install API call containing valid input.
         let module = SoftwareModule {
@@ -184,6 +190,7 @@ mod tests {
         assert!(res.is_ok());
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[tokio::test]
     #[serial]
     async fn plugin_get_command_remove() {
@@ -198,7 +205,7 @@ mod tests {
 
         // Add content of the expected stdout to the dummy plugin.
         let content = "abc\t1.0";
-        let _a = file.write_all(content.as_bytes()).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
 
         // Create module to perform plugin install API call containing valid input.
         let module = SoftwareModule {
@@ -219,18 +226,32 @@ mod tests {
 
     #[test]
     #[serial]
-    fn plugin_call_name_and_path() {
+    fn plugin_call_name_and_path() -> Result<(), anyhow::Error> {
         let dummy_plugin_path = get_dummy_plugin_path();
-        let plugin = ExternalPluginCommand::new("test", &dummy_plugin_path);
+
+        let tmpfile = make_config(100)?;
+        let config_location =
+            TEdgeConfigLocation::from_custom_root(tmpfile.path().to_str().unwrap());
+        let config = tedge_config::TEdgeConfigRepository::new(config_location).load_new()?;
+
+        let plugin = ExternalPluginCommand::new(
+            "test",
+            &dummy_plugin_path,
+            config.software.plugin.max_packages,
+        );
         assert_eq!(plugin.name, "test");
         assert_eq!(plugin.path, dummy_plugin_path);
+        assert_eq!(plugin.max_packages, config.software.plugin.max_packages);
+        Ok(())
     }
 
     #[test]
     #[serial]
     fn plugin_check_module_type_both_same() {
         let dummy_plugin_path = get_dummy_plugin_path();
-        let plugin = ExternalPluginCommand::new("test", &dummy_plugin_path);
+
+        let plugin = ExternalPluginCommand::new("test", dummy_plugin_path, 100);
+
         let module = SoftwareModule {
             module_type: Some("test".into()),
             name: "test".into(),
@@ -253,7 +274,7 @@ mod tests {
         let dummy_plugin_path = get_dummy_plugin_path();
 
         // Create new plugin in the registry with name `test`.
-        let plugin = ExternalPluginCommand::new("test", &dummy_plugin_path);
+        let plugin = ExternalPluginCommand::new("test", dummy_plugin_path, 100);
 
         // Create test module with name `test2`.
         let module = SoftwareModule {
@@ -283,7 +304,7 @@ mod tests {
         // Create dummy plugin.
         let dummy_plugin_path = get_dummy_plugin_path();
 
-        let plugin = ExternalPluginCommand::new("test", &dummy_plugin_path);
+        let plugin = ExternalPluginCommand::new("test", dummy_plugin_path, 100);
 
         // Create software module without an explicit type.
         let module = SoftwareModule {
@@ -299,6 +320,7 @@ mod tests {
         assert_eq!(res, Ok(()));
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[tokio::test]
     #[serial]
     async fn plugin_get_command_update_list() {
@@ -338,6 +360,7 @@ mod tests {
     }
 
     // Test validating if the plugin will fall back to `install` and `remove` options if the `update-list` option is not supported
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[tokio::test]
     #[serial]
     async fn plugin_command_update_list_fallback() {
@@ -392,7 +415,7 @@ mod tests {
             .unwrap()
             .parent() // ./thin-edge.io/
             .unwrap()
-            .join("target/debug/tedge_dummy_plugin");
+            .join("target/debug/tedge-dummy-plugin");
 
         dummy_plugin_path
     }
@@ -403,16 +426,27 @@ mod tests {
             name: name.into(),
             path: dummy_plugin_path.clone(),
             sudo: None,
+            max_packages: 100,
         };
         (plugin, dummy_plugin_path)
     }
 
     fn get_dummy_plugin_tmp_path() -> PathBuf {
-        let path = PathBuf::from_str("/tmp/.tedge_dummy_plugin").unwrap();
+        let path = PathBuf::from_str("/tmp/.tedge-dummy-plugin").unwrap();
         if !&path.exists() {
             fs::create_dir(&path).unwrap();
         }
         path
+    }
+
+    fn make_config(max_packages: u32) -> Result<tempfile::TempDir, anyhow::Error> {
+        let dir = tempfile::TempDir::new().unwrap();
+        let toml_conf = &format!("[software]\nmax_packages = {max_packages}");
+
+        let config_location = TEdgeConfigLocation::from_custom_root(dir.path());
+        let mut file = std::fs::File::create(config_location.tedge_config_file_path())?;
+        file.write_all(toml_conf.as_bytes())?;
+        Ok(dir)
     }
 
     async fn dev_null() -> BufWriter<File> {

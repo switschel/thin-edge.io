@@ -1,7 +1,14 @@
 use crate::with_timeout::WithTimeout;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::{SinkExt, StreamExt};
-use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
+use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::mpsc::UnboundedSender;
+use futures::SinkExt;
+use futures::StreamExt;
+use rumqttc::AsyncClient;
+use rumqttc::Event;
+use rumqttc::EventLoop;
+use rumqttc::MqttOptions;
+use rumqttc::Packet;
+use rumqttc::QoS;
 use std::time::Duration;
 
 /// Returns the stream of messages received on a specific topic.
@@ -24,7 +31,7 @@ pub async fn messages_published_on(mqtt_port: u16, topic: &str) -> UnboundedRece
             }
             Err(err) => {
                 let msg = format!("Error: {:?}", err);
-                let _ = sender.send(msg);
+                sender.send(msg).await.unwrap();
                 return recv;
             }
         }
@@ -138,7 +145,6 @@ where
 
     loop {
         if let Ok(message) = con.next_topic_payload().await {
-            dbg!(&message);
             for (topic, response) in func(message).iter() {
                 let _ = con.publish(topic, QoS::AtLeastOnce, false, response).await;
             }

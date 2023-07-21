@@ -1,0 +1,22 @@
+# ref: https://docs.codecov.com/docs/codecovyml-reference
+coverage:
+  range: 70..100
+  round: down
+  precision: 1
+  status:
+    # ref: https://docs.codecov.com/docs/commit-status
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+# Test files aren't important for coverage
+ignore:
+  - "tests"
+
+# Make comments less noisy
+comment:
+  layout: "files"
+  require_changes: yes

@@ -4,9 +4,10 @@ After=syslog.target network.target mosquitto.service
 
 [Service]
 User=tedge
-ExecStart=/usr/bin/tedge_mapper c8y
+ExecStart=/usr/bin/tedge-mapper c8y
 Restart=on-failure
 RestartPreventExitStatus=255
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

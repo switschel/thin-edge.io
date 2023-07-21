@@ -4,15 +4,22 @@ use futures_timer::Delay;
 use log::debug;
 use log::error;
 use log::info;
-use mqtt_channel::{
-    Config, Connection, ErrChannel, Message, MqttError, PubChannel, SubChannel, Topic, TopicFilter,
-};
+use mqtt_channel::Connection;
+use mqtt_channel::ErrChannel;
+use mqtt_channel::Message;
+use mqtt_channel::MqttError;
+use mqtt_channel::PubChannel;
+use mqtt_channel::SubChannel;
+use mqtt_channel::Topic;
+use mqtt_channel::TopicFilter;
 use std::convert::TryFrom;
 use std::env;
 use std::fmt::Write as _;
 use std::io::Write;
 use std::process;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
+use tedge_config::ConfigRepository;
 
 /*
 
@@ -20,7 +27,7 @@ This is a small and flexible publisher for deterministic test data.
 
 - TODO: Improve code quality
 - TODO: Add different data types for JSON publishing
-- TODO: Command line switch to swith betwen REST and JSON
+- TODO: Command line switch to switch between REST and JSON
 - TODO: Currently REST sending is disabled and JSON publishing is enabled
 - TODO: Add QoS selection
 */
@@ -33,17 +40,17 @@ This is a small and flexible publisher for deterministic test data.
 // Create temperature measurement (211)
 // Create battery measurement (212)
 
-// sawtooth_publisher <wait_time_ms> <height> <iterations> <template>
+// sawtooth-publisher <wait_time_ms> <height> <iterations> <template>
 //
-// cargo run sawtooth_publisher 100 100 100 flux
-// cargo run sawtooth_publisher 1000 10 10 sawmill
+// cargo run sawtooth-publisher 100 100 100 flux
+// cargo run sawtooth-publisher 1000 10 10 sawmill
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     // wait time, template, tooth-height,
     if args.len() != 5 {
-        println!("Usage: sawtooth_publisher <wait_time_ms> <height> <iterations> <template: sawmill|flux>");
+        println!("Usage: sawtooth-publisher <wait_time_ms> <height> <iterations> <template: sawmill|flux>");
         panic!("Errof: Not enough Command line Arguments");
     }
     let wait: i32 = args[1].parse().expect("Cannot parse wait time");
@@ -64,12 +71,18 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     init_logger();
 
+    let config_location = tedge_config::TEdgeConfigLocation::default();
+    let config_repository = tedge_config::TEdgeConfigRepository::new(config_location);
+    let tedge_config = config_repository.load()?;
+
     let name = "sawtooth_".to_string() + &process::id().to_string();
-    let config = Config::default()
+    let mqtt_config = tedge_config
+        .mqtt_config()?
         .with_clean_session(true)
         .with_session_name(name)
         .with_subscriptions(c8y_err);
-    let mqtt = Connection::new(&config).await?;
+
+    let mqtt = Connection::new(&mqtt_config).await?;
 
     let mqtt_pub_channel = mqtt.published;
     let c8y_errors = mqtt.received;

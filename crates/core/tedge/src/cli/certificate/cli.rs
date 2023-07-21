@@ -1,9 +1,14 @@
-use super::{create::CreateCertCmd, remove::RemoveCertCmd, show::ShowCertCmd, upload::*};
+use tedge_config::new::OptionalConfigError;
 
-use crate::command::{BuildCommand, BuildContext, Command};
+use super::create::CreateCertCmd;
+use super::remove::RemoveCertCmd;
+use super::show::ShowCertCmd;
+use super::upload::*;
+
+use crate::command::BuildCommand;
+use crate::command::BuildContext;
+use crate::command::Command;
 use crate::ConfigError;
-
-use tedge_config::*;
 
 #[derive(clap::Subcommand, Debug)]
 pub enum TEdgeCertCli {
@@ -27,29 +32,29 @@ pub enum TEdgeCertCli {
 
 impl BuildCommand for TEdgeCertCli {
     fn build_command(self, context: BuildContext) -> Result<Box<dyn Command>, ConfigError> {
-        let config = context.config_repository.load()?;
+        let config = context.config_repository.load_new()?;
 
         let cmd = match self {
             TEdgeCertCli::Create { id } => {
                 let cmd = CreateCertCmd {
                     id,
-                    cert_path: config.query(DeviceCertPathSetting)?,
-                    key_path: config.query(DeviceKeyPathSetting)?,
+                    cert_path: config.device.cert_path.clone(),
+                    key_path: config.device.key_path.clone(),
                 };
                 cmd.into_boxed()
             }
 
             TEdgeCertCli::Show => {
                 let cmd = ShowCertCmd {
-                    cert_path: config.query(DeviceCertPathSetting)?,
+                    cert_path: config.device.cert_path.clone(),
                 };
                 cmd.into_boxed()
             }
 
             TEdgeCertCli::Remove => {
                 let cmd = RemoveCertCmd {
-                    cert_path: config.query(DeviceCertPathSetting)?,
-                    key_path: config.query(DeviceKeyPathSetting)?,
+                    cert_path: config.device.cert_path.clone(),
+                    key_path: config.device.key_path.clone(),
                 };
                 cmd.into_boxed()
             }
@@ -57,9 +62,9 @@ impl BuildCommand for TEdgeCertCli {
             TEdgeCertCli::Upload(cmd) => {
                 let cmd = match cmd {
                     UploadCertCli::C8y { username } => UploadCertCmd {
-                        device_id: config.query(DeviceIdSetting)?,
-                        path: config.query(DeviceCertPathSetting)?,
-                        host: config.query(C8yUrlSetting)?,
+                        device_id: config.device.id.try_read(&config)?.clone(),
+                        path: config.device.cert_path.clone(),
+                        host: config.c8y.http.or_err()?.to_owned(),
                         username,
                     },
                 };

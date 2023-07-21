@@ -3,20 +3,31 @@ use freedesktop_entry_parser::parse_entry;
 use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use mqtt_channel::{Config, Message, PubChannel, Topic};
+use mqtt_channel::Config;
+use mqtt_channel::Message;
+use mqtt_channel::PubChannel;
+use mqtt_channel::Topic;
 use nanoid::nanoid;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
+use std::path::PathBuf;
+use std::process::Command;
+use std::process::ExitStatus;
+use std::process::Stdio;
+use std::process::{self};
 use std::time::Instant;
-use std::{
-    path::PathBuf,
-    process::{self, Command, ExitStatus, Stdio},
-};
-use tedge_config::{
-    ConfigRepository, ConfigSettingAccessor, MqttBindAddressSetting, MqttPortSetting,
-    TEdgeConfigLocation,
-};
+use tedge_api::health::health_status_down_message;
+use tedge_api::health::health_status_up_message;
+use tedge_api::health::send_health_status;
+use tedge_config::mqtt_config::MqttConfigBuildError;
+use tedge_config::ConfigRepository;
+use tedge_config::TEdgeConfig;
+use tedge_config::TEdgeConfigLocation;
 use time::OffsetDateTime;
-use tracing::{debug, error, info, warn};
+use tracing::debug;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HealthStatus {
@@ -66,6 +77,7 @@ async fn start_watchdog_for_tedge_services(tedge_config_dir: PathBuf) {
     let tedge_services = vec![
         "tedge-mapper-c8y",
         "tedge-mapper-az",
+        "tedge-mapper-aws",
         "tedge-mapper-collectd",
         "tedge-agent",
         "c8y-log-plugin",
@@ -111,13 +123,20 @@ async fn monitor_tedge_service(
     interval: u64,
 ) -> Result<(), WatchdogError> {
     let client_id: &str = &format!("{}_{}", name, nanoid!());
-    let mqtt_config = get_mqtt_config(tedge_config_location, client_id)?
-        .with_subscriptions(res_topic.try_into()?);
+    let config_repository = tedge_config::TEdgeConfigRepository::new(tedge_config_location);
+    let tedge_config = config_repository.load()?;
+    let mqtt_config = get_mqtt_config(&tedge_config, client_id)?
+        .with_subscriptions(res_topic.try_into()?)
+        .with_initial_message(|| health_status_up_message("tedge-watchdog"))
+        .with_last_will_message(health_status_down_message("tedge-watchdog"));
     let client = mqtt_channel::Connection::new(&mqtt_config).await?;
     let mut received = client.received;
     let mut publisher = client.published;
 
     info!("Starting watchdog for {} service", name);
+
+    // Now the systemd watchdog is done with the initialization and ready for processing the messages
+    send_health_status(&mut publisher, "tedge-watchdog").await;
 
     loop {
         let message = Message::new(&Topic::new(req_topic)?, "");
@@ -181,16 +200,10 @@ async fn get_latest_health_status_message(
 }
 
 fn get_mqtt_config(
-    tedge_config_location: TEdgeConfigLocation,
+    tedge_config: &TEdgeConfig,
     client_id: &str,
-) -> Result<Config, WatchdogError> {
-    let config_repository = tedge_config::TEdgeConfigRepository::new(tedge_config_location);
-    let tedge_config = config_repository.load()?;
-    let mqtt_config = Config::default()
-        .with_session_name(client_id)
-        .with_host(tedge_config.query(MqttBindAddressSetting)?.to_string())
-        .with_port(tedge_config.query(MqttPortSetting)?.into());
-    Ok(mqtt_config)
+) -> Result<Config, MqttConfigBuildError> {
+    Ok(tedge_config.mqtt_config()?.with_session_name(client_id))
 }
 
 fn notify_systemd(pid: u32, status: &str) -> Result<ExitStatus, WatchdogError> {

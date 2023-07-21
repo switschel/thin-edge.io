@@ -1,0 +1,14 @@
+[default.extend-words]
+mosquitto = "mosquitto"
+hda = "hda"
+tegde = "tedge"
+OT = "OT"
+Robocorp = "Robocorp"
+
+[files]
+extend-exclude = [
+    "**certificate.txt",
+    "**test_root_cert*.txt",
+    "**.min.js"
+]
+

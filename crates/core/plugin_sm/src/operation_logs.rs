@@ -1,7 +1,10 @@
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
-use std::{cmp::Reverse, collections::HashMap};
-use std::{collections::BinaryHeap, path::Path};
-use time::{format_description, OffsetDateTime};
+use time::format_description;
+use time::OffsetDateTime;
 use tracing::log;
 
 use crate::log_file::LogFile;
@@ -128,7 +131,7 @@ fn remove_old_logs(
         if let Some(rname) = log_tracker.pop() {
             let name = rname.0;
             let path = dir_path.join(name.clone());
-            if let Err(err) = std::fs::remove_file(&path) {
+            if let Err(err) = std::fs::remove_file(path) {
                 log::warn!("Fail to remove out-dated log file {} : {}", name, err);
             }
         }

@@ -1,7 +1,11 @@
-use super::error::{get_webpki_error_from_reqwest, CertError};
+use super::error::get_webpki_error_from_reqwest;
+use super::error::CertError;
 use crate::command::Command;
-use reqwest::{StatusCode, Url};
-use std::{io::prelude::*, path::Path};
+use camino::Utf8PathBuf;
+use reqwest::StatusCode;
+use reqwest::Url;
+use std::io::prelude::*;
+use std::path::Path;
 use tedge_config::*;
 
 #[derive(Debug, serde::Deserialize)]
@@ -20,8 +24,8 @@ struct UploadCertBody {
 
 pub struct UploadCertCmd {
     pub device_id: String,
-    pub path: FilePath,
-    pub host: ConnectUrl,
+    pub path: Utf8PathBuf,
+    pub host: HostPort<HTTPS_PORT>,
     pub username: String,
 }
 
@@ -57,8 +61,8 @@ impl UploadCertCmd {
         };
 
         // To post certificate c8y requires one of the following endpoints:
-        // https://<tenant_id>.cumulocity.url.io/tenant/tenants/<tenant_id>/trusted-certificates
-        // https://<tenant_domain>.cumulocity.url.io/tenant/tenants/<tenant_id>/trusted-certificates
+        // https://<tenant_id>.cumulocity.url.io[:port]/tenant/tenants/<tenant_id>/trusted-certificates
+        // https://<tenant_domain>.cumulocity.url.io[:port]/tenant/tenants/<tenant_id>/trusted-certificates
         // and therefore we need to get tenant_id.
         let tenant_id = get_tenant_id_blocking(
             &client,

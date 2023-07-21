@@ -1,18 +1,26 @@
-use crate::plugin::{Plugin, LIST};
-use crate::{log_file::LogFile, plugin::ExternalPluginCommand};
-use agent_interface::{
-    SoftwareError, SoftwareListRequest, SoftwareListResponse, SoftwareType, SoftwareUpdateRequest,
-    SoftwareUpdateResponse, DEFAULT,
-};
+use crate::log_file::LogFile;
+use crate::plugin::ExternalPluginCommand;
+use crate::plugin::Plugin;
+use crate::plugin::LIST;
+use std::collections::HashMap;
+use std::fs;
+use std::io::ErrorKind;
+use std::io::{self};
 use std::path::Path;
-use std::{
-    collections::HashMap,
-    fs,
-    io::{self, ErrorKind},
-    path::PathBuf,
-    process::{Command, Stdio},
-};
-use tracing::{error, info, warn};
+use std::path::PathBuf;
+use std::process::Command;
+use std::process::Stdio;
+use tedge_api::SoftwareError;
+use tedge_api::SoftwareListRequest;
+use tedge_api::SoftwareListResponse;
+use tedge_api::SoftwareType;
+use tedge_api::SoftwareUpdateRequest;
+use tedge_api::SoftwareUpdateResponse;
+use tedge_api::DEFAULT;
+use tedge_config::TEdgeConfigLocation;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
 
 /// The main responsibility of a `Plugins` implementation is to retrieve the appropriate plugin for a given software module.
 pub trait Plugins {
@@ -46,6 +54,7 @@ pub struct ExternalPlugins {
     plugin_map: HashMap<SoftwareType, ExternalPluginCommand>,
     default_plugin_type: Option<SoftwareType>,
     sudo: Option<PathBuf>,
+    config_location: TEdgeConfigLocation,
 }
 
 impl Plugins for ExternalPlugins {
@@ -89,12 +98,14 @@ impl ExternalPlugins {
         plugin_dir: impl Into<PathBuf>,
         default_plugin_type: Option<String>,
         sudo: Option<PathBuf>,
+        config_location: TEdgeConfigLocation,
     ) -> Result<ExternalPlugins, SoftwareError> {
         let mut plugins = ExternalPlugins {
             plugin_dir: plugin_dir.into(),
             plugin_map: HashMap::new(),
             default_plugin_type: default_plugin_type.clone(),
             sudo,
+            config_location,
         };
         if let Err(e) = plugins.load() {
             warn!(
@@ -128,6 +139,16 @@ impl ExternalPlugins {
 
     pub fn load(&mut self) -> io::Result<()> {
         self.plugin_map.clear();
+
+        let config = tedge_config::TEdgeConfigRepository::new(self.config_location.clone())
+            .load_new()
+            .map_err(|err| {
+                io::Error::new(
+                    ErrorKind::Other,
+                    format!("Failed to load tedge config: {}", err),
+                )
+            })?;
+
         for maybe_entry in fs::read_dir(&self.plugin_dir)? {
             let entry = maybe_entry?;
             let path = entry.path();
@@ -181,7 +202,11 @@ impl ExternalPlugins {
 
                 if let Some(file_name) = path.file_name() {
                     if let Some(plugin_name) = file_name.to_str() {
-                        let plugin = ExternalPluginCommand::new(plugin_name, &path);
+                        let plugin = ExternalPluginCommand::new(
+                            plugin_name,
+                            &path,
+                            config.software.plugin.max_packages,
+                        );
                         self.plugin_map.insert(plugin_name.into(), plugin);
                     }
                 }
@@ -289,6 +314,11 @@ impl ExternalPlugins {
 fn test_no_sm_plugin_dir() {
     let plugin_dir = tempfile::TempDir::new().unwrap();
 
-    let actual = ExternalPlugins::open(plugin_dir.path(), None, None);
+    let actual = ExternalPlugins::open(
+        plugin_dir.path(),
+        None,
+        None,
+        TEdgeConfigLocation::default(),
+    );
     assert!(actual.is_ok());
 }

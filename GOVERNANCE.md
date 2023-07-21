@@ -20,38 +20,58 @@ All the stakeholders must agree on the vision upon joining.
 Changes to the vision need to be done in a plenum of stakeholders, this makes sure that everyone is aware and agrees to the evolution of the project.
 
 
+## Maintainership
 
-## Team Structure
+In this project repository, some contributors have special rights to decide the
+way forward of the project: the maintainers.
 
-* Teams are either single contributors or a group of them
-* They are responsible for a specific part of project, and as such are the maintainers of those parts
-    * This includes: Reviewing pull requests, triaging issues in their assigned area, and general maintenance
-* Each team is assigned a single or multiple subtrees of the project, as defined by the project structure
-* The teams follow the project hierarchy for decisions, i.e. higher decisions take precedence
+These special rights are:
 
-The important bits:
+- Merging new code
+- Deciding on additions/changes
 
-At the 'top' are the maintainers, whose job is to define and realize the project vision of thin-edge.io.
+Translated into actions, this would be things like approving and merging PRs,
+reviewing issues as well as discussions.
+
+To become a maintainer, the current group of maintainers would simply choose to
+promote them. No clear process is currently defined, but in general should a
+motivated and trustworthy contributor be given precedence.
+
 Maintainers should strive for agreement based on the following factors:
 
 - The vision of the whole project
 - Feasibility, accounting for future technical and cultural shifts
 - The health of the project going forward
+- The community being active and motivated
 
-The maintainers ensure that all changes in the project align with the agreed vision
-and support the health of the project and its community without being unduly influenced from their employers.
+The maintainers ensure that all changes in the project align with the agreed
+vision and support the health of the project and its community without being
+unduly influenced from their employers.
 
-Underneath the maintainers are the teams or individuals, that each are allowed to  make similar decisions about the project *in the area they have been delegated*.
+## Team Structure
 
+Underneath the maintainers are the teams or individuals, that each are allowed
+to  make similar decisions about the project *in the area they have been
+delegated*. Team members should be chosen depending on their merit and
+trustworthiness.
 
-- Some decisions are global in the project, like the core/API
-    - Team members should try to make sure to explore possible options together before calling for time-consuming solutions like a vote. This mostly includes uncontroversial changes that are low impact or have already been agreed upon
-    - If an exclusive choice has to be made (where it is not possible to entertain two conflicting approaches), and no clear side is more advantageous to pick, a vote should be held with the majority opinion being the final decision.
+Teams are composed of either a single or multiple contributors. 
+Each team is assigned a single or multiple subtrees of the project, as defined
+by the project structure. 
+The extent of which depends on the area and expected workload.
 
-- Some decisions are local, e.g. a plugin does not impact others with its behaviour, however it still needs to be a 'good citizen' in the project (CI, format, etc..)
-    - These should be clearly scoped in their respective project part
-    - However, if needed a 'higher up' decision can be requested if no consensus is achieved
+They are responsible for only that specific part of the project, and as
+such are tasked with maintaining it.
+This means they should do the same tasks as the maintainers: Periodically
+reviewing pull requests, triaging issues for their area, and general
+maintenance of their codebase.
+The teams follow the project hierarchy for decisions, i.e. higher decisions take precedence.
 
+Decisions impacting multiple teams or the whole project need to be handled with special care.
+They need to be discussed with all relevant teams and a consensus needs to be reached.
+Some decisions are local, e.g. a component maintained by a company, but even in
+this case the team still needs to be a 'good citizen' in the project and follow
+agreed upon conventions (CI, format, etc..)
 
 
 ## Project Structure
@@ -72,7 +92,7 @@ The project has a hierarchy to solve these two problems:
         * This makes it easier to decide on technical questions
     * Everyone has to agree on the core project as it is the foundations to all others.
     * At the periphery, sub-projects might be related to specific eco-systems (e.g. Cumulocity or Moneo) and therefore have independent decision processes.
-    *	At an intermediate level, one might have sub-projects related to specific use-cases like “JSON over MQTT”.
+    *	At an intermediate level, one might have sub-projects related to specific use-cases like "JSON over MQTT".
 * All the sub-projects share a common repository - to ease consistency across projects and over time.
     *	Labels are used to organize issues/PRs/discussions along sub-projects.
     *	Code ownership is used to enforce cooperation around key components, but the default is to let things open and to trust each other, using version control as a safety net.
@@ -110,7 +130,7 @@ The following chapters do not talk about major releases (increasing "x" in a
 ### Preface
 
 The following chapter describes the release process of the thin-edge.io project
-and the corrosponding crates.
+and the corresponding crates.
 
 The goal of the workflow described in this chapter is to have _as little impact
 as possible_ on the general development of the project.
@@ -132,7 +152,7 @@ with the [exceptions implied by the cargo implementation of the standard](https:
 
 Parts of the API that are covered by semver are explicitly marked. Our public
 API is extensively tested in integration tests. If changes to the public API of
-thin-egde.io are necessary, these changes are documented in the `CHANGELOG.md`
+thin-edge.io are necessary, these changes are documented in the `CHANGELOG.md`
 file of the project, with reasoning why the change was necessary and how users
 can upgrade to the new interface(s).
 
@@ -182,7 +202,7 @@ The responsibilities of the release maintainers are:
 * Submit pull requests to the `main` branch to update all version numbers for
   the next release cycle
 
-It is explicitely allowed for everyone to open bugfix-backport pull requests to
+It is explicitly allowed for everyone to open bugfix-backport pull requests to
 a release branch, but the release maintainer(s) decide when and how to apply
 them to the release branch.
 

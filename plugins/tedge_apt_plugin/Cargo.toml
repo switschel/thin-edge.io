@@ -1,31 +1,32 @@
 [package]
-name = "tedge_apt_plugin"
-version = "0.7.4"
-authors = ["thin-edge.io team <info@thin-edge.io>"]
-edition = "2021"
-rust-version = "1.58.1"
-license = "Apache-2.0"
+name = "tedge-apt-plugin"
 description = "Thin.edge.io plugin for software management using apt"
-homepage = "https://thin-edge.io"
-repository = "https://github.com/thin-edge/thin-edge.io"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 
 [package.metadata.deb]
-assets = [
-    ["target/release/tedge_apt_plugin", "/etc/tedge/sm-plugins/apt", "755"],
-]
-
+replaces = "tedge_apt_plugin"
+conflicts = "tedge_apt_plugin (<= 0.8.1)"
+breaks = "tedge_apt_plugin (<= 0.8.1)"
+maintainer-scripts = "../../configuration/debian/tedge-apt-plugin"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 clap = { version = "3", features = ["derive"] }
-thiserror = "1.0"
 csv = "1.1"
+log = "0.4"
+regex = "1"
 serde = { version = "1", features = ["derive"] }
+tedge_config = { path = "../../crates/common/tedge_config" }
+thiserror = "1.0"
+toml = "0.5"
 
 [dev-dependencies]
 anyhow = "1.0"
-hamcrest2 = "0.3"
-reqwest = { version = "0.11", default-features = false, features = [ "blocking", "rustls-tls" ] }
-serial_test = "0.8"
 tedge_utils = { path = "../../crates/common/tedge_utils" }
 test-case = "2.2"

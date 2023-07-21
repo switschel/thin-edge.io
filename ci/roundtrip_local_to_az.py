@@ -11,14 +11,14 @@ Alternatively, we can use the Azure SDK to access the IoT Hub directly.
 When this script is called you need to be already connected to Azure.
 
 Call example:
-$ ./roundtrip_local_to_az.py  -a 10 -p sas_policy -b thinedgebus -q testqueue
+./roundtrip_local_to_az.py  -a 10 -p sas_policy -b thinedgebus -q testqueue
     Set Env:
     - SASKEYQUEUE : Shared Access Key to the service bus queue
 
 Alternatively:
 ./ci/roundtrip_local_to_az.py eventhub
     Set Env:
-    - AZUREENDPOINT : Endpoint descritpion string copied from the Azure UI
+    - AZUREENDPOINT : Endpoint description string copied from the Azure UI
     - AZUREEVENTHUB : Name of the IoT Hub
 """
 
@@ -121,7 +121,7 @@ def retrieve_queue_az(
         f"https://{service_bus_name}.servicebus.windows.net/{queue_name}/messages/head"
     )
 
-    print(f"Downloading mesages from {url}")
+    print(f"Downloading messages from {url}")
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json;charset=utf-8",

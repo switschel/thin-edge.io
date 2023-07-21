@@ -31,11 +31,11 @@ sudo tedge cert show
 
 sudo tedge config set c8y.url "$URL"
 
-sudo tedge config set c8y.root.cert.path /etc/ssl/certs
+sudo tedge config set c8y.root_cert_path /etc/ssl/certs
 
 sudo tedge config set az.url "$IOTHUBNAME.azure-devices.net"
 
-sudo tedge config set az.root.cert.path /etc/ssl/certs/Baltimore_CyberTrust_Root.pem
+sudo tedge config set az.root_cert_path /etc/ssl/certs/Baltimore_CyberTrust_Root.pem
 
 sudo tedge config list
 
@@ -58,7 +58,7 @@ set -e
 # Give Cumolocity time to process the cert deletion
 sleep 2
 
-# Connect and disconnect so that we can retrive a new device ID
+# Connect and disconnect so that we can retrieve a new device ID
 sudo tedge connect c8y
 sudo tedge disconnect c8y
 

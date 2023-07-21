@@ -1,6 +1,7 @@
 use mqtt_channel::MqttError;
 
-use tedge_config::{ConfigSettingError, TEdgeConfigError};
+use tedge_config::ConfigSettingError;
+use tedge_config::TEdgeConfigError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WatchdogError {
@@ -31,4 +32,7 @@ pub enum WatchdogError {
 
     #[error("Did not find the WatchdogSec in {file}")]
     NoWatchdogSec { file: String },
+
+    #[error("Error configuring MQTT client")]
+    FromMqttConfigBuild(#[from] tedge_config::mqtt_config::MqttConfigBuildError),
 }

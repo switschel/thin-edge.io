@@ -2,9 +2,8 @@ pub mod file;
 pub mod fs;
 pub mod paths;
 pub mod signals;
-
-#[cfg(feature = "logging")]
-pub mod logging;
+pub mod size_threshold;
+pub mod timers;
 
 #[cfg(feature = "fs-notify")]
-pub mod fs_notify;
+pub mod notify;

@@ -1,23 +1,24 @@
 use crate::cli::connect::BridgeConfig;
-use tedge_config::{ConnectUrl, FilePath, TemplatesSet};
+use camino::Utf8PathBuf;
+use tedge_config::HostPort;
+use tedge_config::TemplatesSet;
+use tedge_config::MQTT_TLS_PORT;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct BridgeConfigC8yParams {
-    pub connect_url: ConnectUrl,
-    pub mqtt_tls_port: u16,
+    pub mqtt_host: HostPort<MQTT_TLS_PORT>,
     pub config_file: String,
     pub remote_clientid: String,
-    pub bridge_root_cert_path: FilePath,
-    pub bridge_certfile: FilePath,
-    pub bridge_keyfile: FilePath,
+    pub bridge_root_cert_path: Utf8PathBuf,
+    pub bridge_certfile: Utf8PathBuf,
+    pub bridge_keyfile: Utf8PathBuf,
     pub smartrest_templates: TemplatesSet,
 }
 
 impl From<BridgeConfigC8yParams> for BridgeConfig {
     fn from(params: BridgeConfigC8yParams) -> Self {
         let BridgeConfigC8yParams {
-            connect_url,
-            mqtt_tls_port,
+            mqtt_host,
             config_file,
             bridge_root_cert_path,
             remote_clientid,
@@ -25,7 +26,6 @@ impl From<BridgeConfigC8yParams> for BridgeConfig {
             bridge_keyfile,
             smartrest_templates,
         } = params;
-        let address = format!("{}:{}", connect_url.as_str(), mqtt_tls_port);
 
         let mut topics: Vec<String> = vec![
             // Registration
@@ -52,10 +52,11 @@ impl From<BridgeConfigC8yParams> for BridgeConfig {
             r#"inventory/managedObjects/update/# out 2 c8y/ """#.into(),
             r#"measurement/measurements/create out 2 c8y/ """#.into(),
             r#"event/events/create out 2 c8y/ """#.into(),
+            r#"alarm/alarms/create out 2 c8y/ """#.into(),
             r#"error in 2 c8y/ """#.into(),
             // c8y JWT token retrieval
-            r#"s/uat/# out 2 c8y/ """#.into(),
-            r#"s/dat/# in 2 c8y/ """#.into(),
+            r#"s/uat out 2 c8y/ """#.into(),
+            r#"s/dat in 2 c8y/ """#.into(),
         ];
 
         let templates_set = smartrest_templates
@@ -78,7 +79,11 @@ impl From<BridgeConfigC8yParams> for BridgeConfig {
             cloud_name: "c8y".into(),
             config_file,
             connection: "edge_to_c8y".into(),
-            address,
+            address: format!(
+                "{host}:{port}",
+                host = mqtt_host.host(),
+                port = mqtt_host.port().0
+            ),
             remote_username: None,
             bridge_root_cert_path,
             remote_clientid,
@@ -103,11 +108,10 @@ impl From<BridgeConfigC8yParams> for BridgeConfig {
 fn test_bridge_config_from_c8y_params() -> anyhow::Result<()> {
     use std::convert::TryFrom;
     let params = BridgeConfigC8yParams {
-        connect_url: ConnectUrl::try_from("test.test.io")?,
-        mqtt_tls_port: 8883,
+        mqtt_host: HostPort::<MQTT_TLS_PORT>::try_from("test.test.io".to_string())?,
         config_file: "c8y-bridge.conf".into(),
         remote_clientid: "alpha".into(),
-        bridge_root_cert_path: "./test_root.pem".into(),
+        bridge_root_cert_path: Utf8PathBuf::from("./test_root.pem"),
         bridge_certfile: "./test-certificate.pem".into(),
         bridge_keyfile: "./test-private-key.pem".into(),
         smartrest_templates: TemplatesSet::try_from(vec!["abc", "def"])?,
@@ -121,7 +125,7 @@ fn test_bridge_config_from_c8y_params() -> anyhow::Result<()> {
         connection: "edge_to_c8y".into(),
         address: "test.test.io:8883".into(),
         remote_username: None,
-        bridge_root_cert_path: "./test_root.pem".into(),
+        bridge_root_cert_path: Utf8PathBuf::from("./test_root.pem"),
         remote_clientid: "alpha".into(),
         local_clientid: "Cumulocity".into(),
         bridge_certfile: "./test-certificate.pem".into(),
@@ -153,10 +157,11 @@ fn test_bridge_config_from_c8y_params() -> anyhow::Result<()> {
             r#"inventory/managedObjects/update/# out 2 c8y/ """#.into(),
             r#"measurement/measurements/create out 2 c8y/ """#.into(),
             r#"event/events/create out 2 c8y/ """#.into(),
+            r#"alarm/alarms/create out 2 c8y/ """#.into(),
             r#"error in 2 c8y/ """#.into(),
             // c8y JWT token retrieval
-            r#"s/uat/# out 2 c8y/ """#.into(),
-            r#"s/dat/# in 2 c8y/ """#.into(),
+            r#"s/uat out 2 c8y/ """#.into(),
+            r#"s/dat in 2 c8y/ """#.into(),
             // Smartrest templates should be deserialized as:
             // s/uc/template-1 (in from localhost), s/uc/template-1
             // s/dc/template-1 (out to localhost), s/dc/template-1

@@ -1,46 +1,48 @@
 [package]
-name = "c8y_log_plugin"
-version = "0.7.4"
-authors = ["thin-edge.io team <info@thin-edge.io>"]
-edition = "2021"
-rust-version = "1.58.1"
-license = "Apache-2.0"
+name = "c8y-log-plugin"
 description = "Thin-edge device log file retriever for Cumulocity"
-homepage = "https://thin-edge.io"
-repository = "https://github.com/thin-edge/thin-edge.io"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [package.metadata.deb]
-maintainer-scripts = "../../configuration/debian/c8y_log_plugin"
+replaces = "c8y_log_plugin"
+conflicts = "c8y_log_plugin (<= 0.8.1)"
+breaks = "c8y_log_plugin (<= 0.8.1)"
+maintainer-scripts = "../../configuration/debian/c8y-log-plugin"
 assets = [
-    ["../../configuration/init/systemd/c8y-log-plugin.service", "/lib/systemd/system/c8y-log-plugin.service", "644"],
-    ["target/release/c8y_log_plugin", "/usr/bin/c8y_log_plugin", "755"],
+    [
+        "../../configuration/init/systemd/c8y-log-plugin.service",
+        "/lib/systemd/system/c8y-log-plugin.service",
+        "644",
+    ],
+    [
+        "target/release/c8y-log-plugin",
+        "/usr/bin/c8y-log-plugin",
+        "755",
+    ],
 ]
+
+# Required for DEBHELPER
+[package.metadata.deb.systemd-units]
 
 [dependencies]
 anyhow = "1.0"
-c8y_api = { path = "../../crates/core/c8y_api" }
-c8y_smartrest = { path = "../../crates/core/c8y_smartrest" }
+c8y_http_proxy = { path = "../../crates/extensions/c8y_http_proxy" }
+c8y_log_manager = { path = "../../crates/extensions/c8y_log_manager" }
 clap = { version = "3.2", features = ["cargo", "derive"] }
-csv = "1.1"
-easy_reader = "0.5"
-glob = "0.3"
-mqtt_channel = { path = "../../crates/common/mqtt_channel" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+tedge_actors = { path = "../../crates/core/tedge_actors" }
 tedge_config = { path = "../../crates/common/tedge_config" }
-tedge_utils = { path = "../../crates/common/tedge_utils", features = ["logging", "fs-notify"] }
-time = { version = "0.3" }
-thin_edge_json = { path = "../../crates/core/thin_edge_json" }
-thiserror = "1.0"
-tokio = { version = "1.9", default_features = false, features = [ "fs", "io-util", "macros", "rt-multi-thread","signal"] }
-toml = "0.5"
+tedge_file_system_ext = { path = "../../crates/extensions/tedge_file_system_ext" }
+tedge_health_ext = { path = "../../crates/extensions/tedge_health_ext" }
+tedge_http_ext = { path = "../../crates/extensions/tedge_http_ext" }
+tedge_mqtt_ext = { path = "../../crates/extensions/tedge_mqtt_ext" }
+tedge_signal_ext = { path = "../../crates/extensions/tedge_signal_ext" }
+tedge_utils = { path = "../../crates/common/tedge_utils" }
+tokio = { version = "1.23", features = ["rt", "rt-multi-thread"] }
 tracing = { version = "0.1", features = ["attributes", "log"] }
-
-[dev-dependencies]
-assert_matches = "1.5"
-filetime = "0.2"
-mockall = "0.11"
-tempfile = "3.3"
-test-case = "2.2"
-serial_test = "0.8"

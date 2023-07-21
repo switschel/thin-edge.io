@@ -1,3 +1,6 @@
+use rumqttc::tokio_rustls::rustls;
+use rumqttc::ConnectReturnCode;
+
 /// An MQTT related error
 #[derive(thiserror::Error, Debug)]
 pub enum MqttError {
@@ -9,6 +12,9 @@ pub enum MqttError {
 
     #[error("Invalid session: a session name must be provided")]
     InvalidSessionConfig,
+
+    #[error(transparent)]
+    InvalidPrivateKey(#[from] rustls::Error),
 
     #[error("MQTT client error: {0}")]
     ClientError(#[from] rumqttc::ClientError),
@@ -38,6 +44,12 @@ pub enum MqttError {
         "The send channel of the connection has been closed and no more messages can be published"
     )]
     SendOnClosedConnection,
+
+    #[error("Failed to create a TLS config")]
+    TlsConfig(#[from] certificate::CertificateError),
+
+    #[error("Failed to initialize the session with MQTT Broker due to: {reason} ")]
+    InitSessionError { reason: String },
 }
 
 impl MqttError {
@@ -74,6 +86,44 @@ impl MqttError {
             .filter(|c| !c.is_whitespace())
             .take(len)
             .collect()
+    }
+
+    pub fn from_connection_error(err: rumqttc::ConnectionError) -> MqttError {
+        match err {
+            rumqttc::ConnectionError::ConnectionRefused(ConnectReturnCode::BadClientId) => {
+                MqttError::InitSessionError {
+                    reason: "bad client id".to_string(),
+                }
+            }
+            rumqttc::ConnectionError::ConnectionRefused(ConnectReturnCode::BadUserNamePassword) => {
+                MqttError::InitSessionError {
+                    reason: "bad user name and password".to_string(),
+                }
+            }
+            rumqttc::ConnectionError::ConnectionRefused(ConnectReturnCode::NotAuthorized) => {
+                MqttError::InitSessionError {
+                    reason: " not authorized".to_string(),
+                }
+            }
+            rumqttc::ConnectionError::ConnectionRefused(
+                ConnectReturnCode::RefusedProtocolVersion,
+            ) => MqttError::InitSessionError {
+                reason: " protocol version mismatch".to_string(),
+            },
+            rumqttc::ConnectionError::ConnectionRefused(ConnectReturnCode::ServiceUnavailable) => {
+                MqttError::InitSessionError {
+                    reason: " service not available".to_string(),
+                }
+            }
+            rumqttc::ConnectionError::ConnectionRefused(ConnectReturnCode::Success) => {
+                MqttError::InitSessionError {
+                    reason: "Connection successful".to_string(),
+                }
+            }
+            e => MqttError::InitSessionError {
+                reason: e.to_string(),
+            },
+        }
     }
 }
 

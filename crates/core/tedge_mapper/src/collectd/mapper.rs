@@ -1,21 +1,28 @@
-use std::path::Path;
-
-use crate::{
-    collectd::monitor::{DeviceMonitor, DeviceMonitorConfig},
-    core::component::TEdgeComponent,
-};
+use crate::core::component::TEdgeComponent;
+use crate::core::mapper::start_basic_actors;
 use async_trait::async_trait;
+use batcher::BatchingActorBuilder;
+use collectd_ext::actor::CollectdActorBuilder;
+use mqtt_channel::QoS;
+use mqtt_channel::Topic;
 use mqtt_channel::TopicFilter;
-use tedge_config::{ConfigSettingAccessor, MqttBindAddressSetting, MqttPortSetting, TEdgeConfig};
-use tracing::{info, info_span, Instrument};
+use std::path::Path;
+use tedge_actors::MessageSink;
+use tedge_config::new::TEdgeConfig;
 
 const COLLECTD_MAPPER_NAME: &str = "tedge-mapper-collectd";
+const COLLECTD_INPUT_TOPICS: &str = "collectd/#";
+const COLLECTD_OUTPUT_TOPIC: &str = "tedge/measurements";
 
-pub struct CollectdMapper {}
+pub struct CollectdMapper;
 
 impl CollectdMapper {
-    pub fn new() -> Self {
-        Self {}
+    fn input_topics() -> TopicFilter {
+        TopicFilter::new_unchecked(COLLECTD_INPUT_TOPICS).with_qos(QoS::AtMostOnce)
+    }
+
+    fn output_topic() -> Topic {
+        Topic::new_unchecked(COLLECTD_OUTPUT_TOPIC)
     }
 }
 
@@ -25,33 +32,30 @@ impl TEdgeComponent for CollectdMapper {
         COLLECTD_MAPPER_NAME
     }
 
-    async fn init(&self, _cfg_dir: &Path) -> Result<(), anyhow::Error> {
-        info!("Initialize tedge mapper collectd");
-        self.init_session(TopicFilter::new(
-            DeviceMonitorConfig::default().mqtt_source_topic,
-        )?)
-        .await?;
-        Ok(())
-    }
-
     async fn start(
         &self,
         tedge_config: TEdgeConfig,
         _config_dir: &Path,
     ) -> Result<(), anyhow::Error> {
-        let mqtt_port = tedge_config.query(MqttPortSetting)?.into();
-        let mqtt_host = tedge_config.query(MqttBindAddressSetting)?.to_string();
+        let (mut runtime, mut mqtt_actor) =
+            start_basic_actors(self.session_name(), &tedge_config).await?;
 
-        let device_monitor_config = DeviceMonitorConfig::default()
-            .with_port(mqtt_port)
-            .with_host(mqtt_host);
+        let input_topic = CollectdMapper::input_topics();
+        let output_topic = CollectdMapper::output_topic();
 
-        let device_monitor = DeviceMonitor::new(device_monitor_config);
-        device_monitor
-            .run()
-            .instrument(info_span!(COLLECTD_MAPPER_NAME))
-            .await?;
+        let mut batching_actor = BatchingActorBuilder::default();
+        let mut collectd_actor = CollectdActorBuilder::new(input_topic);
 
+        collectd_actor.add_input(&mut mqtt_actor);
+        batching_actor.add_input(&mut collectd_actor);
+        mqtt_actor.add_mapped_input(&mut batching_actor, move |batch| {
+            collectd_ext::converter::batch_into_mqtt_messages(&output_topic, batch).into_iter()
+        });
+
+        runtime.spawn(collectd_actor).await?;
+        runtime.spawn(batching_actor).await?;
+        runtime.spawn(mqtt_actor).await?;
+        runtime.run_to_completion().await?;
         Ok(())
     }
 }

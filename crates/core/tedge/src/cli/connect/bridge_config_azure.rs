@@ -1,5 +1,6 @@
 use crate::cli::connect::BridgeConfig;
-use tedge_config::{ConnectUrl, FilePath};
+use camino::Utf8PathBuf;
+use tedge_config::ConnectUrl;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct BridgeConfigAzureParams {
@@ -7,9 +8,9 @@ pub struct BridgeConfigAzureParams {
     pub mqtt_tls_port: u16,
     pub config_file: String,
     pub remote_clientid: String,
-    pub bridge_root_cert_path: FilePath,
-    pub bridge_certfile: FilePath,
-    pub bridge_keyfile: FilePath,
+    pub bridge_root_cert_path: Utf8PathBuf,
+    pub bridge_certfile: Utf8PathBuf,
+    pub bridge_keyfile: Utf8PathBuf,
 }
 
 impl From<BridgeConfigAzureParams> for BridgeConfig {
@@ -24,13 +25,12 @@ impl From<BridgeConfigAzureParams> for BridgeConfig {
             bridge_keyfile,
         } = params;
 
-        let address = format!("{}:{}", connect_url.as_str(), mqtt_tls_port);
+        let address = format!("{}:{}", connect_url, mqtt_tls_port);
         let user_name = format!(
             "{}/{}/?api-version=2018-06-30",
-            connect_url.as_str(),
-            remote_clientid
+            connect_url, remote_clientid
         );
-        let pub_msg_topic = format!("messages/events/ out 1 az/ devices/{}/", remote_clientid);
+        let pub_msg_topic = format!("messages/events/# out 1 az/ devices/{}/", remote_clientid);
         let sub_msg_topic = format!(
             "messages/devicebound/# out 1 az/ devices/{}/",
             remote_clientid
@@ -87,7 +87,7 @@ fn test_bridge_config_from_azure_params() -> anyhow::Result<()> {
         connection: "edge_to_az".into(),
         address: "test.test.io:8883".into(),
         remote_username: Some("test.test.io/alpha/?api-version=2018-06-30".into()),
-        bridge_root_cert_path: "./test_root.pem".into(),
+        bridge_root_cert_path: Utf8PathBuf::from("./test_root.pem"),
         remote_clientid: "alpha".into(),
         local_clientid: "Azure".into(),
         bridge_certfile: "./test-certificate.pem".into(),
@@ -95,7 +95,7 @@ fn test_bridge_config_from_azure_params() -> anyhow::Result<()> {
         use_mapper: true,
         use_agent: false,
         topics: vec![
-            r#"messages/events/ out 1 az/ devices/alpha/"#.into(),
+            r#"messages/events/# out 1 az/ devices/alpha/"#.into(),
             r##"messages/devicebound/# out 1 az/ devices/alpha/"##.into(),
             r##"twin/res/# in 1 az/ $iothub/"##.into(),
             r#"twin/GET/?$rid=1 out 1 az/ $iothub/"#.into(),

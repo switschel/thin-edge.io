@@ -1,0 +1,44 @@
+[package]
+name = "c8y-firmware-plugin"
+description = "Thin-edge device firmware management for Cumulocity"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+
+[package.metadata.deb]
+depends = "tedge-agent"
+maintainer-scripts = "../../configuration/debian/c8y-firmware-plugin"
+assets = [
+    [
+        "../../configuration/init/systemd/c8y-firmware-plugin.service",
+        "/lib/systemd/system/c8y-firmware-plugin.service",
+        "644",
+    ],
+    [
+        "target/release/c8y-firmware-plugin",
+        "/usr/bin/c8y-firmware-plugin",
+        "755",
+    ],
+]
+
+# Required for DEBHELPER
+[package.metadata.deb.systemd-units]
+
+[dependencies]
+anyhow = "1.0"
+c8y_firmware_manager = { path = "../../crates/extensions/c8y_firmware_manager" }
+c8y_http_proxy = { path = "../../crates/extensions/c8y_http_proxy" }
+clap = { version = "3.2", features = ["cargo", "derive"] }
+tedge_actors = { path = "../../crates/core/tedge_actors" }
+tedge_config = { path = "../../crates/common/tedge_config" }
+tedge_downloader_ext = { path = "../../crates/extensions/tedge_downloader_ext" }
+tedge_health_ext = { path = "../../crates/extensions/tedge_health_ext" }
+tedge_mqtt_ext = { path = "../../crates/extensions/tedge_mqtt_ext" }
+tedge_signal_ext = { path = "../../crates/extensions/tedge_signal_ext" }
+tedge_timer_ext = { path = "../../crates/extensions/tedge_timer_ext" }
+tokio = { version = "1.23", features = ["rt", "rt-multi-thread"] }
+tracing = { version = "0.1", features = ["attributes", "log"] }

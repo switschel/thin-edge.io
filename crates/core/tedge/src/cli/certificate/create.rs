@@ -1,13 +1,14 @@
 use super::error::CertError;
 use crate::command::Command;
-use certificate::{KeyCertPair, NewCertificateConfig};
-use std::{
-    fs::{File, OpenOptions},
-    io::prelude::*,
-    path::Path,
-};
-use tedge_config::*;
-use tedge_utils::paths::{set_permission, validate_parent_dir_exists};
+use camino::Utf8PathBuf;
+use certificate::KeyCertPair;
+use certificate::NewCertificateConfig;
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::io::prelude::*;
+use std::path::Path;
+use tedge_utils::paths::set_permission;
+use tedge_utils::paths::validate_parent_dir_exists;
 
 /// Create a self-signed device certificate
 pub struct CreateCertCmd {
@@ -15,10 +16,10 @@ pub struct CreateCertCmd {
     pub id: String,
 
     /// The path where the device certificate will be stored
-    pub cert_path: FilePath,
+    pub cert_path: Utf8PathBuf,
 
     /// The path where the device private key will be stored
-    pub key_path: FilePath,
+    pub key_path: Utf8PathBuf,
 }
 
 impl Command for CreateCertCmd {
@@ -29,6 +30,7 @@ impl Command for CreateCertCmd {
     fn execute(&self) -> anyhow::Result<()> {
         let config = NewCertificateConfig::default();
         self.create_test_certificate(&config)?;
+        eprintln!("Certificate was successfully created");
         Ok(())
     }
 }
@@ -145,7 +147,7 @@ mod tests {
     fn create_certificate_in_non_existent_directory() {
         let dir = tempdir().unwrap();
         let key_path = temp_file_path(&dir, "my-device-key.pem");
-        let cert_path = FilePath::from("/non/existent/cert/path");
+        let cert_path = Utf8PathBuf::from("/non/existent/cert/path");
 
         let cmd = CreateCertCmd {
             id: "my-device-id".into(),
@@ -163,7 +165,7 @@ mod tests {
     fn create_key_in_non_existent_directory() {
         let dir = tempdir().unwrap();
         let cert_path = temp_file_path(&dir, "my-device-cert.pem");
-        let key_path = FilePath::from("/non/existent/key/path");
+        let key_path = Utf8PathBuf::from("/non/existent/key/path");
 
         let cmd = CreateCertCmd {
             id: "my-device-id".into(),
@@ -177,8 +179,8 @@ mod tests {
         assert_matches!(cert_error, CertError::KeyPathError { .. });
     }
 
-    fn temp_file_path(dir: &TempDir, filename: &str) -> FilePath {
-        dir.path().join(filename).into()
+    fn temp_file_path(dir: &TempDir, filename: &str) -> Utf8PathBuf {
+        dir.path().join(filename).try_into().unwrap()
     }
 
     fn parse_pem_file(path: impl AsRef<Path>) -> Result<pem::Pem, String> {

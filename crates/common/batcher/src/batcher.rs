@@ -1,4 +1,5 @@
-use crate::batch::{Batch, BatchAdd};
+use crate::batch::Batch;
+use crate::batch::BatchAdd;
 use crate::batchable::Batchable;
 use crate::config::BatchConfig;
 use time::OffsetDateTime;
@@ -96,10 +97,10 @@ impl<B: Batchable> Batcher<B> {
         batch.batch_end() + self.config.delivery_jitter() > time
     }
 
-    pub(crate) fn flush(self) -> Vec<Vec<B>> {
+    pub(crate) fn flush(&mut self) -> Vec<Vec<B>> {
         let mut batches = Vec::with_capacity(self.batches.len());
 
-        for batch in self.batches {
+        while let Some(batch) = self.batches.pop() {
             batches.push(batch.into_vec())
         }
 
@@ -107,13 +108,9 @@ impl<B: Batchable> Batcher<B> {
     }
 
     fn find_target_batch(&mut self, event_time: OffsetDateTime) -> Option<&mut Batch<B>> {
-        for batch in &mut self.batches {
-            if batch.batch_start() <= event_time && event_time <= batch.batch_end() {
-                return Some(batch);
-            }
-        }
-
-        None
+        self.batches
+            .iter_mut()
+            .find(|batch| batch.batch_start() <= event_time && event_time <= batch.batch_end())
     }
 
     fn make_new_batch(&self, event: B) -> Batch<B> {

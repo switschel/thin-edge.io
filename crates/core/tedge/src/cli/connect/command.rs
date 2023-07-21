@@ -1,19 +1,30 @@
-use crate::{
-    cli::connect::jwt_token::*, cli::connect::*, command::Command, system_services::*, ConfigError,
-};
+use crate::cli::common::Cloud;
+use crate::cli::connect::jwt_token::*;
+use crate::cli::connect::*;
+use crate::command::Command;
+use crate::ConfigError;
+use camino::Utf8PathBuf;
+use rumqttc::Event;
+use rumqttc::Incoming;
+use rumqttc::Outgoing;
+use rumqttc::Packet;
 use rumqttc::QoS::AtLeastOnce;
-use rumqttc::{Event, Incoming, MqttOptions, Outgoing, Packet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use tedge_config::system_services::*;
 use tedge_config::*;
-use tedge_utils::paths::{create_directories, ok_if_not_found, DraftFile};
+use tedge_utils::paths::create_directories;
+use tedge_utils::paths::ok_if_not_found;
+use tedge_utils::paths::DraftFile;
 use which::which;
 
 const WAIT_FOR_CHECK_SECONDS: u64 = 2;
 const C8Y_CONFIG_FILENAME: &str = "c8y-bridge.conf";
 const AZURE_CONFIG_FILENAME: &str = "az-bridge.conf";
+const AWS_CONFIG_FILENAME: &str = "aws-bridge.conf";
 pub(crate) const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
 const MOSQUITTO_RESTART_TIMEOUT_SECONDS: u64 = 5;
 const MQTT_TLS_PORT: u16 = 8883;
 const TEDGE_BRIDGE_CONF_DIR_PATH: &str = "mosquitto-conf";
@@ -32,30 +43,6 @@ pub enum DeviceStatus {
     Unknown,
 }
 
-#[derive(Debug)]
-pub enum Cloud {
-    Azure,
-    C8y,
-}
-
-impl Cloud {
-    fn dependent_mapper_service(&self) -> SystemService {
-        match self {
-            Cloud::Azure => SystemService::TEdgeMapperAz,
-            Cloud::C8y => SystemService::TEdgeMapperC8y,
-        }
-    }
-}
-
-impl Cloud {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Azure => "Azure",
-            Self::C8y => "Cumulocity",
-        }
-    }
-}
-
 impl Command for ConnectCommand {
     fn description(&self) -> String {
         if self.is_test_connection {
@@ -66,7 +53,7 @@ impl Command for ConnectCommand {
     }
 
     fn execute(&self) -> anyhow::Result<()> {
-        let mut config = self.config_repository.load()?;
+        let config = self.config_repository.load()?;
         if self.is_test_connection {
             let br_config = self.bridge_config(&config)?;
             if self.check_if_bridge_exists(&br_config) {
@@ -92,11 +79,6 @@ impl Command for ConnectCommand {
             }
         }
 
-        // XXX: Do we really need to persist the defaults?
-        match self.cloud {
-            Cloud::Azure => assign_default(&mut config, AzureRootCertPathSetting)?,
-            Cloud::C8y => assign_default(&mut config, C8yRootCertPathSetting)?,
-        }
         let bridge_config = self.bridge_config(&config)?;
         let updated_mosquitto_config = self
             .common_mosquitto_config
@@ -112,20 +94,10 @@ impl Command for ConnectCommand {
                     .ok()
                     .map(|x| x.to_string()),
                 config.query(MqttExternalBindInterfaceSetting).ok(),
-                config
-                    .query(MqttExternalCAPathSetting)
-                    .ok()
-                    .map(|x| x.to_string()),
-                config
-                    .query(MqttExternalCertfileSetting)
-                    .ok()
-                    .map(|x| x.to_string()),
-                config
-                    .query(MqttExternalKeyfileSetting)
-                    .ok()
-                    .map(|x| x.to_string()),
+                config.query(MqttExternalCAPathSetting).ok(),
+                config.query(MqttExternalCertfileSetting).ok(),
+                config.query(MqttExternalKeyfileSetting).ok(),
             );
-        self.config_repository.store(&config)?;
 
         let device_type = config.query(DeviceTypeSetting)?;
 
@@ -152,21 +124,19 @@ impl Command for ConnectCommand {
         if bridge_config.use_mapper {
             println!("Checking if tedge-mapper is installed.\n");
 
-            if which("tedge_mapper").is_err() {
-                println!("Warning: tedge_mapper is not installed.\n");
+            if which("tedge-mapper").is_err() {
+                println!("Warning: tedge-mapper is not installed.\n");
             } else {
-                self.service_manager.as_ref().start_and_enable_service(
-                    self.cloud.dependent_mapper_service(),
-                    std::io::stdout(),
-                );
+                self.service_manager
+                    .as_ref()
+                    .start_and_enable_service(self.cloud.mapper_service(), std::io::stdout());
             }
         }
 
         if let Cloud::C8y = self.cloud {
             check_connected_c8y_tenant_as_configured(
-                &config.query_string(C8yUrlSetting)?,
-                config.query(MqttPortSetting)?.into(),
-                config.query(MqttBindAddressSetting)?.to_string(),
+                &config,
+                &config.query_string(C8yMqttSetting)?,
             );
             enable_software_management(&bridge_config, self.service_manager.as_ref());
         }
@@ -191,10 +161,22 @@ impl ConnectCommand {
 
                 Ok(BridgeConfig::from(params))
             }
+            Cloud::Aws => {
+                let params = BridgeConfigAwsParams {
+                    connect_url: config.query(AwsUrlSetting)?,
+                    mqtt_tls_port: MQTT_TLS_PORT,
+                    config_file: AWS_CONFIG_FILENAME.into(),
+                    bridge_root_cert_path: config.query(AwsRootCertPathSetting)?,
+                    remote_clientid: config.query(DeviceIdSetting)?,
+                    bridge_certfile: config.query(DeviceCertPathSetting)?,
+                    bridge_keyfile: config.query(DeviceKeyPathSetting)?,
+                };
+
+                Ok(BridgeConfig::from(params))
+            }
             Cloud::C8y => {
                 let params = BridgeConfigC8yParams {
-                    connect_url: config.query(C8yUrlSetting)?,
-                    mqtt_tls_port: MQTT_TLS_PORT,
+                    mqtt_host: config.query(C8yMqttSetting)?,
                     config_file: C8Y_CONFIG_FILENAME.into(),
                     bridge_root_cert_path: config.query(C8yRootCertPathSetting)?,
                     remote_clientid: config.query(DeviceIdSetting)?,
@@ -209,15 +191,13 @@ impl ConnectCommand {
     }
 
     fn check_connection(&self, config: &TEdgeConfig) -> Result<DeviceStatus, ConnectError> {
-        let port = config.query(MqttPortSetting)?.into();
-        let host = config.query(MqttBindAddressSetting)?.to_string();
-
         println!(
             "Sending packets to check connection. This may take up to {} seconds.\n",
             WAIT_FOR_CHECK_SECONDS
         );
         match self.cloud {
-            Cloud::Azure => check_device_status_azure(port, host),
+            Cloud::Azure => check_device_status_azure(config),
+            Cloud::Aws => check_device_status_aws(config),
             Cloud::C8y => check_device_status_c8y(config),
         }
     }
@@ -233,35 +213,22 @@ impl ConnectCommand {
     }
 }
 
-// XXX: Improve naming
-fn assign_default<T: ConfigSetting + Copy>(
-    config: &mut TEdgeConfig,
-    setting: T,
-) -> Result<(), ConfigError>
-where
-    TEdgeConfig: ConfigSettingAccessor<T>,
-{
-    let value = config.query(setting)?;
-    config.update(setting, value)?;
-    Ok(())
-}
-
-// Check the connection by using the jwt token retrival over the mqtt.
+// Check the connection by using the jwt token retrieval over the mqtt.
 // If successful in getting the jwt token '71,xxxxx', the connection is established.
 fn check_device_status_c8y(tedge_config: &TEdgeConfig) -> Result<DeviceStatus, ConnectError> {
     const C8Y_TOPIC_BUILTIN_JWT_TOKEN_DOWNSTREAM: &str = "c8y/s/dat";
     const C8Y_TOPIC_BUILTIN_JWT_TOKEN_UPSTREAM: &str = "c8y/s/uat";
     const CLIENT_ID: &str = "check_connection_c8y";
 
-    let mut options = MqttOptions::new(
-        CLIENT_ID,
-        tedge_config.query(MqttBindAddressSetting)?.to_string(),
-        tedge_config.query(MqttPortSetting)?.into(),
-    );
+    let mut mqtt_options = tedge_config
+        .mqtt_config()?
+        .with_session_name(CLIENT_ID)
+        .rumqttc_options()?;
 
-    options.set_keep_alive(RESPONSE_TIMEOUT);
+    mqtt_options.set_keep_alive(RESPONSE_TIMEOUT);
+    mqtt_options.set_connection_timeout(CONNECTION_TIMEOUT.as_secs());
 
-    let (mut client, mut connection) = rumqttc::Client::new(options, 10);
+    let (mut client, mut connection) = rumqttc::Client::new(mqtt_options, 10);
     let mut acknowledged = false;
 
     client.subscribe(C8Y_TOPIC_BUILTIN_JWT_TOKEN_DOWNSTREAM, AtLeastOnce)?;
@@ -316,17 +283,21 @@ fn check_device_status_c8y(tedge_config: &TEdgeConfig) -> Result<DeviceStatus, C
 // Empty payload will be published to az/$iothub/twin/GET/?$rid=1, here 1 is request ID.
 // The result will be published by the iothub on the az/$iothub/twin/res/{status}/?$rid={request id}.
 // Here if the status is 200 then it's success.
-fn check_device_status_azure(port: u16, host: String) -> Result<DeviceStatus, ConnectError> {
+fn check_device_status_azure(tedge_config: &TEdgeConfig) -> Result<DeviceStatus, ConnectError> {
     const AZURE_TOPIC_DEVICE_TWIN_DOWNSTREAM: &str = r##"az/twin/res/#"##;
     const AZURE_TOPIC_DEVICE_TWIN_UPSTREAM: &str = r#"az/twin/GET/?$rid=1"#;
     const CLIENT_ID: &str = "check_connection_az";
     const REGISTRATION_PAYLOAD: &[u8] = b"";
     const REGISTRATION_OK: &str = "200";
 
-    let mut options = MqttOptions::new(CLIENT_ID, host, port);
-    options.set_keep_alive(RESPONSE_TIMEOUT);
+    let mut mqtt_options = tedge_config
+        .mqtt_config()?
+        .with_session_name(CLIENT_ID)
+        .rumqttc_options()?;
 
-    let (mut client, mut connection) = rumqttc::Client::new(options, 10);
+    mqtt_options.set_keep_alive(RESPONSE_TIMEOUT);
+
+    let (mut client, mut connection) = rumqttc::Client::new(mqtt_options, 10);
     let mut acknowledged = false;
 
     client.subscribe(AZURE_TOPIC_DEVICE_TWIN_DOWNSTREAM, AtLeastOnce)?;
@@ -354,6 +325,73 @@ fn check_device_status_azure(port: u16, host: String) -> Result<DeviceStatus, Co
                 } else {
                     break;
                 }
+            }
+            Ok(Event::Outgoing(Outgoing::PingReq)) => {
+                // No messages have been received for a while
+                eprintln!("ERROR: Local MQTT publish has timed out.");
+                break;
+            }
+            Ok(Event::Incoming(Incoming::Disconnect)) => {
+                eprintln!("ERROR: Disconnected");
+                break;
+            }
+            Err(err) => {
+                eprintln!("ERROR: {:?}", err);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if acknowledged {
+        // The request has been sent but without a response
+        Ok(DeviceStatus::Unknown)
+    } else {
+        // The request has not even been sent
+        println!("Make sure mosquitto is running.");
+        Err(ConnectError::TimeoutElapsedError)
+    }
+}
+
+fn check_device_status_aws(tedge_config: &TEdgeConfig) -> Result<DeviceStatus, ConnectError> {
+    const AWS_TOPIC_PUB_CHECK_CONNECTION: &str = r#"aws/test-connection"#;
+    const AWS_TOPIC_SUB_CHECK_CONNECTION: &str = r#"aws/connection-success"#;
+    const CLIENT_ID: &str = "check_connection_aws";
+    const REGISTRATION_PAYLOAD: &[u8] = b"";
+
+    let mut mqtt_options = tedge_config
+        .mqtt_config()?
+        .with_session_name(CLIENT_ID)
+        .rumqttc_options()?;
+    mqtt_options.set_keep_alive(RESPONSE_TIMEOUT);
+
+    let (mut client, mut connection) = rumqttc::Client::new(mqtt_options, 10);
+    let mut acknowledged = false;
+
+    client.subscribe(AWS_TOPIC_SUB_CHECK_CONNECTION, AtLeastOnce)?;
+
+    for event in connection.iter() {
+        match event {
+            Ok(Event::Incoming(Packet::SubAck(_))) => {
+                // We are ready to get the response, hence send the request
+                client.publish(
+                    AWS_TOPIC_PUB_CHECK_CONNECTION,
+                    AtLeastOnce,
+                    false,
+                    REGISTRATION_PAYLOAD,
+                )?;
+            }
+            Ok(Event::Incoming(Packet::PubAck(_))) => {
+                // The request has been sent
+                acknowledged = true;
+            }
+            Ok(Event::Incoming(Packet::Publish(response))) => {
+                // We got a response
+                println!(
+                    "Received expected response on topic {}, connection check is successful.",
+                    response.topic
+                );
+                return Ok(DeviceStatus::AlreadyExists);
             }
             Ok(Event::Outgoing(Outgoing::PingReq)) => {
                 // No messages have been received for a while
@@ -470,7 +508,7 @@ fn enable_software_management(
     println!("Enabling software management.\n");
     if bridge_config.use_agent {
         println!("Checking if tedge-agent is installed.\n");
-        if which("tedge_agent").is_ok() {
+        if which("tedge-agent").is_ok() {
             service_manager
                 .start_and_enable_service(SystemService::TEdgeSMAgent, std::io::stdout());
         } else {
@@ -486,7 +524,7 @@ fn clean_up(
     bridge_config: &BridgeConfig,
 ) -> Result<(), ConnectError> {
     let path = get_bridge_config_file_path(config_location, bridge_config);
-    std::fs::remove_file(&path).or_else(ok_if_not_found)?;
+    std::fs::remove_file(path).or_else(ok_if_not_found)?;
     Ok(())
 }
 
@@ -513,11 +551,11 @@ fn write_bridge_config_to_file(
         .join(TEDGE_BRIDGE_CONF_DIR_PATH);
 
     // This will forcefully create directory structure if it doesn't exist, we should find better way to do it, maybe config should deal with it?
-    create_directories(&dir_path)?;
+    create_directories(dir_path)?;
 
     let common_config_path =
         get_common_mosquitto_config_file_path(config_location, common_mosquitto_config);
-    let mut common_draft = DraftFile::new(&common_config_path)?;
+    let mut common_draft = DraftFile::new(common_config_path)?;
     common_mosquitto_config.serialize(&mut common_draft)?;
     common_draft.persist()?;
 
@@ -532,7 +570,7 @@ fn write_bridge_config_to_file(
 fn get_bridge_config_file_path(
     config_location: &TEdgeConfigLocation,
     bridge_config: &BridgeConfig,
-) -> PathBuf {
+) -> Utf8PathBuf {
     config_location
         .tedge_config_root_path
         .join(TEDGE_BRIDGE_CONF_DIR_PATH)
@@ -542,7 +580,7 @@ fn get_bridge_config_file_path(
 fn get_common_mosquitto_config_file_path(
     config_location: &TEdgeConfigLocation,
     common_mosquitto_config: &CommonMosquittoConfig,
-) -> PathBuf {
+) -> Utf8PathBuf {
     config_location
         .tedge_config_root_path
         .join(TEDGE_BRIDGE_CONF_DIR_PATH)
@@ -550,8 +588,8 @@ fn get_common_mosquitto_config_file_path(
 }
 
 // To confirm the connected c8y tenant is the one that user configured.
-fn check_connected_c8y_tenant_as_configured(configured_url: &str, port: u16, host: String) {
-    match get_connected_c8y_url(port, host) {
+fn check_connected_c8y_tenant_as_configured(tedge_config: &TEdgeConfig, configured_url: &str) {
+    match get_connected_c8y_url(tedge_config) {
         Ok(url) if url == configured_url => {}
         Ok(url) => println!(
             "Warning: Connecting to {}, but the configured URL is {}.\n\

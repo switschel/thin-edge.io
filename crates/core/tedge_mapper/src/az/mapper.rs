@@ -1,16 +1,16 @@
-use std::path::Path;
-
-use crate::{
-    az::converter::AzureConverter,
-    core::{component::TEdgeComponent, mapper::create_mapper, size_threshold::SizeThreshold},
-};
-
+use crate::core::component::TEdgeComponent;
+use crate::core::mapper::start_basic_actors;
 use async_trait::async_trait;
+use az_mapper_ext::converter::AzureConverter;
 use clock::WallClock;
-use tedge_config::{AzureMapperTimestamp, MqttBindAddressSetting, TEdgeConfig};
-use tedge_config::{ConfigSettingAccessor, MqttPortSetting};
-use tedge_utils::file::create_directory_with_user_group;
-use tracing::{info, info_span, Instrument};
+use mqtt_channel::TopicFilter;
+use std::path::Path;
+use tedge_actors::ConvertingActor;
+use tedge_actors::MessageSink;
+use tedge_actors::MessageSource;
+use tedge_actors::NoConfig;
+use tedge_config::new::TEdgeConfig;
+use tracing::warn;
 
 const AZURE_MAPPER_NAME: &str = "tedge-mapper-az";
 
@@ -28,39 +28,35 @@ impl TEdgeComponent for AzureMapper {
         AZURE_MAPPER_NAME
     }
 
-    async fn init(&self, config_dir: &Path) -> Result<(), anyhow::Error> {
-        info!("Initialize tedge mapper az");
-        create_directory_with_user_group(
-            format!("{}/operations/az", config_dir.display()),
-            "tedge",
-            "tedge",
-            0o775,
-        )?;
-
-        self.init_session(AzureConverter::in_topic_filter()).await?;
-        Ok(())
-    }
-
     async fn start(
         &self,
         tedge_config: TEdgeConfig,
         _config_dir: &Path,
     ) -> Result<(), anyhow::Error> {
-        let add_timestamp = tedge_config.query(AzureMapperTimestamp)?.is_set();
-        let mqtt_port = tedge_config.query(MqttPortSetting)?.into();
-        let mqtt_host = tedge_config.query(MqttBindAddressSetting)?.to_string();
-        let clock = Box::new(WallClock);
-        let size_threshold = SizeThreshold(255 * 1024);
+        let (mut runtime, mut mqtt_actor) =
+            start_basic_actors(self.session_name(), &tedge_config).await?;
 
-        let converter = Box::new(AzureConverter::new(add_timestamp, clock, size_threshold));
+        let az_converter =
+            AzureConverter::new(tedge_config.az.mapper.timestamp, Box::new(WallClock));
+        let mut az_converting_actor =
+            ConvertingActor::builder("AzConverter", az_converter, get_topic_filter(&tedge_config));
+        az_converting_actor.add_input(&mut mqtt_actor);
 
-        let mut mapper = create_mapper(AZURE_MAPPER_NAME, mqtt_host, mqtt_port, converter).await?;
+        az_converting_actor.register_peer(NoConfig, mqtt_actor.get_sender());
 
-        mapper
-            .run(None)
-            .instrument(info_span!(AZURE_MAPPER_NAME))
-            .await?;
-
+        runtime.spawn(az_converting_actor).await?;
+        runtime.spawn(mqtt_actor).await?;
+        runtime.run_to_completion().await?;
         Ok(())
     }
+}
+
+fn get_topic_filter(tedge_config: &TEdgeConfig) -> TopicFilter {
+    let mut topics = TopicFilter::empty();
+    for topic in tedge_config.az.topics.0.clone() {
+        if topics.add(&topic).is_err() {
+            warn!("The configured topic '{topic}' is invalid and ignored.");
+        }
+    }
+    topics
 }

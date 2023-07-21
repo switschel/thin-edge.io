@@ -3,21 +3,34 @@ mod module_check;
 
 use crate::error::InternalError;
 use crate::module_check::PackageMetadata;
-use clap::{IntoApp, Parser};
+use clap::IntoApp;
+use clap::Parser;
+use log::warn;
+use regex::Regex;
 use serde::Deserialize;
+use std::fs;
 use std::io::{self};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::Command;
+use std::process::ExitStatus;
+use std::process::Stdio;
+use tedge_config::TEdgeConfigLocation;
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 struct AptCli {
     #[clap(subcommand)]
     operation: PluginOp,
 }
 
-#[derive(clap::Subcommand)]
+#[derive(clap::Subcommand, Debug)]
 pub enum PluginOp {
     /// List all the installed modules
-    List,
+    List {
+        #[clap(long = "--name")]
+        name: Option<String>,
+
+        #[clap(long = "--maintainer")]
+        maintainer: Option<String>,
+    },
 
     /// Install a module
     Install {
@@ -61,27 +74,61 @@ struct SoftwareModuleUpdate {
     pub path: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct TedgeConfig {
+    pub apt: AptConfig,
+}
+
+#[derive(Debug, Deserialize)]
+struct AptConfig {
+    pub name: Option<String>,
+    pub maintainer: Option<String>,
+}
+
 fn run(operation: PluginOp) -> Result<ExitStatus, InternalError> {
     let status = match operation {
-        PluginOp::List {} => {
-            let apt = Command::new("apt")
-                .args(vec!["--manual-installed", "list"])
-                .stdout(Stdio::piped()) // To pipe apt.stdout into awk.stdin
-                .spawn()
-                .map_err(|err| InternalError::exec_error("apt", err))?;
-
-            // apt output    = openssl/focal-security,now 1.1.1f-1ubuntu2.3 amd64 [installed]
-            // awk -F '[/ ]' =   $1   ^       $2         ^   $3            ^   $4
-            // awk print     =   name ^                  ^   version       ^
-            Command::new("awk")
+        PluginOp::List { name, maintainer } => {
+            let dpkg_query = Command::new("dpkg-query")
                 .args(vec![
-                    "-F",
-                    "[/ ]",
-                    r#"{if ($1 != "Listing...") { print $1"\t"$3}}"#,
+                    "-f",
+                    "${Package}\t${Version}\t${Maintainer}\t${Status}\n",
+                    "-W",
                 ])
-                .stdin(apt.stdout.unwrap()) // Cannot panic: apt.stdout has been set
-                .status()
-                .map_err(|err| InternalError::exec_error("awk", err))?
+                .stdout(Stdio::piped())
+                .spawn()
+                .map_err(|err| InternalError::exec_error("dpkg-query", err))?
+                .wait_with_output()
+                .map_err(|err| InternalError::exec_error("dpkg-query", err))?;
+
+            let stdout = String::from_utf8(dpkg_query.stdout).unwrap_or_default();
+
+            let filter = match (&name, &maintainer) {
+                (None, None) => Regex::new(r"install ok installed").unwrap(),
+
+                _ => match Regex::new(
+                    format!(
+                        r"(^{}\t.*|^\S+\t\S+\t{}\s+.*)install ok installed",
+                        name.unwrap_or_default(),
+                        maintainer.unwrap_or_default()
+                    )
+                    .as_str(),
+                ) {
+                    Ok(filter) => filter,
+                    Err(err) => {
+                        eprintln!("tedge-apt-plugin fails to list packages with matching name and maintainer: {err}");
+                        std::process::exit(1)
+                    }
+                },
+            };
+
+            for line in stdout.trim_end().lines() {
+                if filter.is_match(line) {
+                    let (name, version) = get_name_and_version(line);
+                    println!("{name}\t{version}");
+                }
+            }
+
+            dpkg_query.status
         }
 
         PluginOp::Install {
@@ -90,7 +137,10 @@ fn run(operation: PluginOp) -> Result<ExitStatus, InternalError> {
             file_path,
         } => {
             let (installer, _metadata) = get_installer(module, version, file_path)?;
-            run_cmd("apt-get", &format!("install --quiet --yes {}", installer))?
+            run_cmd(
+                "apt-get",
+                &format!("install --quiet --yes --allow-downgrades {}", installer),
+            )?
         }
 
         PluginOp::Remove { module, version } => {
@@ -122,11 +172,12 @@ fn run(operation: PluginOp) -> Result<ExitStatus, InternalError> {
             for update_module in updates {
                 match update_module.action {
                     UpdateAction::Install => {
-                        let (installer, metadata) = get_installer(
-                            update_module.name,
-                            update_module.version,
-                            update_module.path,
-                        )?;
+                        // if version is `latest` we want to set `version` to an empty value, so
+                        // the apt plugin fetches the most up to date version.
+                        let version = update_module.version.filter(|version| version != "latest");
+
+                        let (installer, metadata) =
+                            get_installer(update_module.name, version, update_module.path)?;
                         args.push(installer);
                         metadata_vec.push(metadata);
                     }
@@ -230,13 +281,39 @@ fn run_cmd(cmd: &str, args: &str) -> Result<ExitStatus, InternalError> {
     Ok(status)
 }
 
+fn get_name_and_version(line: &str) -> (&str, &str) {
+    let vec: Vec<&str> = line.split('\t').collect();
+
+    let name = vec.first().unwrap_or(&"unknown name");
+    let version = vec.get(1).unwrap_or(&"unknown version");
+    (name, version)
+}
+
+fn get_config() -> Option<TedgeConfig> {
+    let config_dir = TEdgeConfigLocation::default();
+
+    match fs::read_to_string(config_dir.tedge_config_file_path()) {
+        Ok(content) => match toml::from_str(&content) {
+            Ok(config) => Some(config),
+            Err(err) => {
+                warn!(
+                    "Failed to parse {}: {}",
+                    config_dir.tedge_config_file_path(),
+                    err
+                );
+                None
+            }
+        },
+        Err(_) => None,
+    }
+}
+
 fn main() {
     // On usage error, the process exits with a status code of 1
 
-    let apt = match AptCli::try_parse() {
+    let mut apt = match AptCli::try_parse() {
         Ok(aptcli) => aptcli,
-        Err(err) => {
-            eprintln!("ERROR: {}", err);
+        Err(_) => {
             AptCli::command()
                 .print_help()
                 .expect("Failed to print usage help");
@@ -244,6 +321,22 @@ fn main() {
             std::process::exit(1)
         }
     };
+
+    if let PluginOp::List {
+        ref mut name,
+        ref mut maintainer,
+    } = apt.operation
+    {
+        if let Some(config) = get_config() {
+            if name.is_none() {
+                *name = config.apt.name;
+            }
+
+            if maintainer.is_none() {
+                *maintainer = config.apt.maintainer;
+            }
+        }
+    }
 
     match run(apt.operation) {
         Ok(status) if status.success() => {
@@ -263,5 +356,31 @@ fn main() {
             eprintln!("ERROR: {}", err);
             std::process::exit(5);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    #[test_case(
+    "zsh\t5.8-6+deb11u1\tDebian Zsh Maintainers <pkg-zsh-devel@lists.alioth.debian.org>\tinstall ok installed",
+    "zsh", "5.8-6+deb11u1"
+    ; "installed"
+    )]
+    fn get_package_name_and_version(line: &str, expected_name: &str, expected_version: &str) {
+        let (name, version) = get_name_and_version(line);
+        assert_eq!(name, expected_name);
+        assert_eq!(version, expected_version);
+    }
+
+    #[test]
+    fn both_filters_are_empty_strings() {
+        let filters = PluginOp::List {
+            name: Some("".into()),
+            maintainer: Some("".into()),
+        };
+        assert!(run(filters).is_ok())
     }
 }

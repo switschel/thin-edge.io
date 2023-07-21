@@ -1,15 +1,17 @@
-use agent_interface::*;
 use async_trait::async_trait;
 use csv::ReaderBuilder;
 use download::Downloader;
 use logged_command::LoggedCommand;
 use serde::Deserialize;
+use std::error::Error;
 use std::path::Path;
-use std::{path::PathBuf, process::Output};
+use std::path::PathBuf;
+use std::process::Output;
+use tedge_api::*;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::io::BufWriter;
-use tokio::{fs::File, io::AsyncWriteExt};
 use tracing::error;
-
 #[async_trait]
 pub trait Plugin {
     async fn prepare(&self, logger: &mut BufWriter<File>) -> Result<(), SoftwareError>;
@@ -151,7 +153,8 @@ pub trait Plugin {
         logger: &mut BufWriter<File>,
         download_path: &Path,
     ) -> Result<Downloader, SoftwareError> {
-        let downloader = Downloader::new(&module.name, &module.version, &download_path);
+        let sm_path = sm_path(&module.name, &module.version, download_path);
+        let downloader = Downloader::new(sm_path);
 
         logger
             .write_all(
@@ -163,6 +166,7 @@ pub trait Plugin {
                 .as_bytes(),
             )
             .await?;
+        logger.flush().await?;
 
         if let Err(err) =
             downloader
@@ -170,10 +174,11 @@ pub trait Plugin {
                 .await
                 .map_err(|err| SoftwareError::DownloadError {
                     reason: err.to_string(),
+                    source_err: err.source().map(|e| e.to_string()).unwrap_or_default(),
                     url: url.url().to_string(),
                 })
         {
-            error!("Download error: {}", &err);
+            error!("Download error: {err:#?}");
             logger
                 .write_all(format!("error: {}\n", &err).as_bytes())
                 .await?;
@@ -217,14 +222,20 @@ pub struct ExternalPluginCommand {
     pub name: SoftwareType,
     pub path: PathBuf,
     pub sudo: Option<PathBuf>,
+    pub max_packages: u32,
 }
 
 impl ExternalPluginCommand {
-    pub fn new(name: impl Into<SoftwareType>, path: impl Into<PathBuf>) -> ExternalPluginCommand {
+    pub fn new(
+        name: impl Into<SoftwareType>,
+        path: impl Into<PathBuf>,
+        max_packages: u32,
+    ) -> ExternalPluginCommand {
         ExternalPluginCommand {
             name: name.into(),
             path: path.into(),
             sudo: Some("sudo".into()),
+            max_packages,
         }
     }
 
@@ -332,7 +343,7 @@ impl Plugin for ExternalPluginCommand {
             Ok(())
         } else {
             Err(SoftwareError::Install {
-                module: module.clone(),
+                module: Box::new(module.clone()),
                 reason: self.content(output.stderr)?,
             })
         }
@@ -350,7 +361,7 @@ impl Plugin for ExternalPluginCommand {
             Ok(())
         } else {
             Err(SoftwareError::Remove {
-                module: module.clone(),
+                module: Box::new(module.clone()),
                 reason: self.content(output.stderr)?,
             })
         }
@@ -434,10 +445,27 @@ impl Plugin for ExternalPluginCommand {
         let command = self.command(LIST, None)?;
         let output = self.execute(command, logger).await?;
         if output.status.success() {
-            Ok(deserialize_module_info(
-                self.name.clone(),
-                output.stdout.as_slice(),
-            )?)
+            if self.max_packages == 0 {
+                Ok(deserialize_module_info(
+                    self.name.clone(),
+                    output.stdout.as_slice(),
+                )?)
+            } else {
+                let (last_line, _) = String::from_utf8(output.stdout.as_slice().to_vec())
+                    .unwrap_or_default()
+                    .char_indices()
+                    .filter(|(_, c)| *c == '\n')
+                    .nth(usize::try_from(self.max_packages).unwrap_or(usize::MAX))
+                    .unwrap_or_default();
+
+                Ok(deserialize_module_info(
+                    self.name.clone(),
+                    match last_line {
+                        0 => output.stdout.as_slice(),
+                        _ => &output.stdout[..=last_line],
+                    },
+                )?)
+            }
         } else {
             Err(SoftwareError::Plugin {
                 software_type: self.name.clone(),
@@ -491,4 +519,14 @@ pub fn deserialize_module_info(
         });
     }
     Ok(software_list)
+}
+
+fn sm_path(name: &str, version: &Option<String>, target_dir_path: impl AsRef<Path>) -> PathBuf {
+    let mut filename = name.to_string();
+    if let Some(version) = version {
+        filename.push('_');
+        filename.push_str(version.as_str());
+    }
+
+    target_dir_path.as_ref().join(filename)
 }

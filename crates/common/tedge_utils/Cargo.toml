@@ -1,37 +1,43 @@
 [package]
 name = "tedge_utils"
-version = "0.7.4"
-authors = ["thin-edge.io team <info@thin-edge.io>"]
-edition = "2021"
-rust-version = "1.58.1"
-license = "Apache-2.0"
 description = "tedge_utils provide utilities for thin-edge.io components"
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
 
 [features]
 # No features on by default
 default = []
-logging = ["tracing", "tracing-subscriber"]
-fs-notify = ["inotify", "async-stream", "strum_macros", "try-traits"]
+logging = []
+fs-notify = ["strum_macros", "notify"]
 
 [dependencies]
-async-stream = { version = "0.3", optional = true }
+anyhow = "1.0.71"
 futures = "0.3"
-inotify = { version = "0.10", optional = true }
+mqtt_channel = { path = "../mqtt_channel" }
 nix = "0.24"
+notify = { version = "5.0", optional = true, default-features = false }
 strum_macros = { version = "0.24", optional = true }
 tempfile = "3.2"
 thiserror = "1.0"
-tokio = { version = "1.12", default_features = false, features = [ "fs", "io-util", "macros", "signal"] }
-tracing = { version = "0.1", features = [], optional = true }
-tracing-subscriber = { version = "0.3", optional = true, features = [ "time" ] }
-try-traits = { version = "0.1", optional = true }
+tokio = { version = "1.23", default_features = false, features = [
+    "fs",
+    "io-util",
+    "macros",
+    "signal",
+    "sync",
+    "time",
+] }
+tracing = { version = "0.1", features = [] }
 users = "0.11.0"
 
 [dev-dependencies]
 assert_matches = "1.5"
 maplit = "1.0"
 tedge_test_utils = { path = "../../tests/tedge_test_utils" }
-tokio = { version = "1.12", features = [ "rt-multi-thread"] }
+tokio = { version = "1.23", features = ["rt-multi-thread"] }
 whoami = "1.2.1"
-
-

@@ -58,14 +58,14 @@ else
 fi
 
 if [ -z "$EXAMPLEDIR" ]; then
-    echo "Error: Please supply the path to the sawtooth_publisher as EXAMPLEDIR"
+    echo "Error: Please supply the path to the sawtooth-publisher as EXAMPLEDIR"
     exit 1
 else
     echo "Your exampledir: $EXAMPLEDIR"
 fi
 
 if [ -z "$TEBASEDIR" ]; then
-    echo "Error: Please supply the path to the sawtooth_publisher as TEBASEDIR"
+    echo "Error: Please supply the path to the sawtooth-publisher as TEBASEDIR"
     exit 1
 else
     echo "Your thin edge base dir: $TEBASEDIR"
@@ -113,5 +113,5 @@ sleep 12
 # Uses thin-edge JSON for publishing
 ./ci/roundtrip_local_to_c8y.py -m JSON -pub "$EXAMPLEDIR" -u "$C8YUSERNAME" -t "$C8YTENANT" -id "$C8YDEVICEID"
 
-echo "Disonnect again"
+echo "Disconnect again"
 sudo tedge disconnect c8y

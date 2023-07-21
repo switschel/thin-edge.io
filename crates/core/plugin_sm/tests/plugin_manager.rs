@@ -1,8 +1,12 @@
 #[cfg(test)]
 mod tests {
 
-    use plugin_sm::plugin_manager::{ExternalPlugins, Plugins};
-    use std::{fs::File, path::PathBuf, str::FromStr};
+    use plugin_sm::plugin_manager::ExternalPlugins;
+    use plugin_sm::plugin_manager::Plugins;
+    use std::fs::File;
+    use std::path::PathBuf;
+    use std::str::FromStr;
+    use tedge_config::TEdgeConfigLocation;
     use tempfile::NamedTempFile;
 
     #[test]
@@ -12,13 +16,15 @@ mod tests {
         let plugin_dir = temp_dir.path().to_owned();
 
         // Call open and load to register all plugins from given directory.
-        let mut plugins = ExternalPlugins::open(plugin_dir, None, None).unwrap();
+        let mut plugins =
+            ExternalPlugins::open(plugin_dir, None, None, TEdgeConfigLocation::default()).unwrap();
         let _ = plugins.load();
 
         // Plugins registry should not register any plugin as no files in the directory are present.
         assert!(plugins.empty());
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[test]
     fn plugin_manager_load_plugins_some_non_executables() {
         // Create empty plugins directory.
@@ -29,7 +35,8 @@ mod tests {
         let plugin_dir = temp_dir.path().to_owned();
 
         // Call open and load to register all plugins from given directory.
-        let mut plugins = ExternalPlugins::open(plugin_dir, None, None).unwrap();
+        let mut plugins =
+            ExternalPlugins::open(plugin_dir, None, None, TEdgeConfigLocation::default()).unwrap();
         let _ = plugins.load();
 
         // Registry has registered no plugins.
@@ -47,7 +54,8 @@ mod tests {
         let plugin_dir = temp_dir.path().to_owned();
 
         // Call open and load to register all plugins from given directory.
-        let mut plugins = ExternalPlugins::open(plugin_dir, None, None).unwrap();
+        let mut plugins =
+            ExternalPlugins::open(plugin_dir, None, None, TEdgeConfigLocation::default()).unwrap();
         let _ = plugins.load();
 
         // Check if registry has loaded plugin of type `test`.
@@ -56,6 +64,7 @@ mod tests {
         assert!(plugins.default().is_none());
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[test]
     fn plugin_manager_load_plugins_some_by_plugins_some() {
         // Create empty plugins directory.
@@ -90,10 +99,10 @@ mod tests {
         let (_, _path) = plugin2.keep().unwrap();
 
         let plugin_dir = temp_dir.path().to_owned();
-        dbg!(&plugin_dir);
 
         // Call open and load to register all plugins from given directory.
-        let mut plugins = ExternalPlugins::open(plugin_dir, None, None).unwrap();
+        let mut plugins =
+            ExternalPlugins::open(plugin_dir, None, None, TEdgeConfigLocation::default()).unwrap();
         let _ = plugins.load();
 
         // Plugin registry shall have registered plugin with name as the file in plugin directory.
@@ -103,6 +112,7 @@ mod tests {
         assert!(plugins.default().is_none());
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[test]
     fn explicit_default_plugin() {
         let plugin_dir = tempfile::tempdir().unwrap();
@@ -125,9 +135,13 @@ mod tests {
         let _res = std::fs::copy(get_dummy_plugin_path(), plugin3.path());
         let (_, _path) = plugin3.keep().unwrap();
 
-        let mut plugins =
-            ExternalPlugins::open(plugin_dir.into_path(), Some(plugin_name2.clone()), None)
-                .unwrap();
+        let mut plugins = ExternalPlugins::open(
+            plugin_dir.into_path(),
+            Some(plugin_name2.clone()),
+            None,
+            TEdgeConfigLocation::default(),
+        )
+        .unwrap();
         plugins.load().unwrap();
 
         assert_eq!(
@@ -137,6 +151,7 @@ mod tests {
         assert_eq!(plugins.default().unwrap().name, plugin_name2);
     }
 
+    #[ignore = "dependency on tedge-dummy-plugin"]
     #[test]
     fn implicit_default_plugin_with_only_one_plugin() {
         let plugin_dir = tempfile::tempdir().unwrap();
@@ -152,7 +167,13 @@ mod tests {
             .to_owned();
         let (_, _path) = plugin.keep().unwrap();
 
-        let mut plugins = ExternalPlugins::open(plugin_dir.into_path(), None, None).unwrap();
+        let mut plugins = ExternalPlugins::open(
+            plugin_dir.into_path(),
+            None,
+            None,
+            TEdgeConfigLocation::default(),
+        )
+        .unwrap();
         plugins.load().unwrap();
 
         assert_eq!(
@@ -168,7 +189,12 @@ mod tests {
         let plugin_file_path = plugin_dir.path().join("apt");
         let _ = File::create(plugin_file_path).unwrap();
 
-        let result = ExternalPlugins::open(plugin_dir.into_path(), Some("dummy".into()), None)?;
+        let result = ExternalPlugins::open(
+            plugin_dir.into_path(),
+            Some("dummy".into()),
+            None,
+            TEdgeConfigLocation::default(),
+        )?;
         assert!(result.empty());
         assert!(result.default().is_none());
 
@@ -196,7 +222,7 @@ mod tests {
             .unwrap()
             .parent() // ./thin-edge.io/
             .unwrap()
-            .join("target/debug/tedge_dummy_plugin");
+            .join("target/debug/tedge-dummy-plugin");
 
         dummy_plugin_path
     }

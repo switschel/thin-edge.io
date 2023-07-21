@@ -9,7 +9,7 @@ When a temporary directory is created to store the certificate and key
 When we create a certificate using the valid characters using the sudo tedge
 When we upload the certificate onto the c8y cloud
 When we connect to the c8y cloud
-Then we check for the output of the tedge connect and find successfull
+Then we check for the output of the tedge connect and find successful
 Cleanup the Certificate and Key path and delete the temporary directory
 """
 
@@ -22,7 +22,7 @@ class ValidateValidDeviceId(TedgeEnvironment):
         # disconnect the device from cloud
         self.tedge_disconnect_c8y()
 
-        # create a custom certiticate directory for testing purpose
+        # create a custom certificate directory for testing purpose
         create_cert_dir = self.startProcess(
             command=self.sudo,
             arguments=["mkdir", "/tmp/test-device-certs"],
@@ -43,7 +43,7 @@ class ValidateValidDeviceId(TedgeEnvironment):
                 self.tedge,
                 "config",
                 "set",
-                "device.cert.path",
+                "device.cert_path",
                 "/tmp/test-device-certs/tedge-certificate.pem",
             ],
             stdouterr="set_cert_path",
@@ -56,7 +56,7 @@ class ValidateValidDeviceId(TedgeEnvironment):
                 self.tedge,
                 "config",
                 "set",
-                "device.key.path",
+                "device.key_path",
                 "/tmp/test-device-certs/tedge-private-key.pem",
             ],
             stdouterr="set_key_path",
@@ -103,7 +103,7 @@ class ValidateValidDeviceId(TedgeEnvironment):
         self.tedge_connect_c8y_test()
 
     def validate(self):
-        # validate the connection is successfull
+        # validate the connection is successful
         self.assertGrep("tedge_connect_c8y.out", "successful", contains=True)
         self.assertGrep("tedge_connect_c8y_test.out", "successful", contains=True)
 
@@ -115,14 +115,14 @@ class ValidateValidDeviceId(TedgeEnvironment):
         # unset the device certificate path
         unset_cert_path = self.startProcess(
             command=self.sudo,
-            arguments=[self.tedge, "config", "unset", "device.cert.path"],
+            arguments=[self.tedge, "config", "unset", "device.cert_path"],
             stdouterr="unset_cert_path",
         )
 
         # unset the device key path
         unset_key_path = self.startProcess(
             command=self.sudo,
-            arguments=[self.tedge, "config", "unset", "device.key.path"],
+            arguments=[self.tedge, "config", "unset", "device.key_path"],
             stdouterr="unset_key_path",
         )
 

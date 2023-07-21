@@ -1,5 +1,10 @@
-use crate::{Config, MqttError};
-use rumqttc::{AsyncClient, Event, Packet};
+use crate::Config;
+use crate::MqttError;
+use log::warn;
+use rumqttc::AsyncClient;
+use rumqttc::ConnectReturnCode;
+use rumqttc::Event;
+use rumqttc::Packet;
 
 /// Create a persistent session on the MQTT server `config.host`.
 ///
@@ -16,7 +21,7 @@ pub async fn init_session(config: &Config) -> Result<(), MqttError> {
         return Err(MqttError::InvalidSessionConfig);
     }
 
-    let mqtt_options = config.mqtt_options();
+    let mqtt_options = config.rumqttc_options()?;
     let (mqtt_client, mut event_loop) = AsyncClient::new(mqtt_options, config.queue_capacity);
 
     loop {
@@ -36,10 +41,13 @@ pub async fn init_session(config: &Config) -> Result<(), MqttError> {
                 break;
             }
 
-            Err(err) => {
-                eprintln!("Connection Error {}", err);
-                break;
-            }
+            Err(err) => match err {
+                rumqttc::ConnectionError::ConnectionRefused(ConnectReturnCode::Success) => {}
+                _ => {
+                    warn!("{}", MqttError::from_connection_error(err));
+                    break;
+                }
+            },
             _ => (),
         }
     }
@@ -63,7 +71,7 @@ pub async fn clear_session(config: &Config) -> Result<(), MqttError> {
     if config.session_name.is_none() {
         return Err(MqttError::InvalidSessionConfig);
     }
-    let mut mqtt_options = config.mqtt_options();
+    let mut mqtt_options = config.rumqttc_options()?;
     mqtt_options.set_clean_session(true);
     let (mqtt_client, mut event_loop) = AsyncClient::new(mqtt_options, config.queue_capacity);
 

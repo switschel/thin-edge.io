@@ -1,10 +1,23 @@
-use crate::{Config, ErrChannel, Message, MqttError, PubChannel, SubChannel};
+use crate::Config;
+use crate::ErrChannel;
+use crate::Message;
+use crate::MqttError;
+use crate::PubChannel;
+use crate::SubChannel;
 use futures::channel::mpsc;
 use futures::channel::oneshot;
-use futures::{SinkExt, StreamExt};
-use rumqttc::{
-    AsyncClient, ConnectionError, Event, EventLoop, Incoming, Outgoing, Packet, StateError,
-};
+use futures::SinkExt;
+use futures::StreamExt;
+use log::error;
+use log::info;
+use rumqttc::AsyncClient;
+use rumqttc::ConnectionError;
+use rumqttc::Event;
+use rumqttc::EventLoop;
+use rumqttc::Incoming;
+use rumqttc::Outgoing;
+use rumqttc::Packet;
+use rumqttc::StateError;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -78,6 +91,8 @@ impl Connection {
         let (mqtt_client, event_loop) =
             Connection::open(config, received_sender.clone(), error_sender.clone()).await?;
         tokio::spawn(Connection::receiver_loop(
+            mqtt_client.clone(),
+            config.clone(),
             event_loop,
             received_sender,
             error_sender.clone(),
@@ -86,6 +101,7 @@ impl Connection {
             mqtt_client,
             published_receiver,
             error_sender,
+            config.last_will_message.clone(),
             pub_done_sender,
         ));
 
@@ -107,7 +123,17 @@ impl Connection {
         mut message_sender: mpsc::UnboundedSender<Message>,
         mut error_sender: mpsc::UnboundedSender<MqttError>,
     ) -> Result<(AsyncClient, EventLoop), MqttError> {
-        let mqtt_options = config.mqtt_options();
+        const INSECURE_MQTT_PORT: u16 = 1883;
+        const SECURE_MQTT_PORT: u16 = 8883;
+
+        if config.broker.port == INSECURE_MQTT_PORT && config.broker.authentication.is_some() {
+            eprintln!("WARNING: Connecting on port 1883 for insecure MQTT using a TLS connection");
+        }
+        if config.broker.port == SECURE_MQTT_PORT && config.broker.authentication.is_none() {
+            eprintln!("WARNING: Connecting on port 8883 for secure MQTT without a CA file");
+        }
+
+        let mqtt_options = config.rumqttc_options()?;
         let (mqtt_client, mut event_loop) = AsyncClient::new(mqtt_options, config.queue_capacity);
 
         loop {
@@ -116,11 +142,16 @@ impl Connection {
                     if let Some(err) = MqttError::maybe_connection_error(&ack) {
                         return Err(err);
                     };
+                    info!("MQTT connection established");
+
                     let subscriptions = config.subscriptions.filters();
+
+                    // Need check here otherwise it will hang waiting for a SubAck, and none will come when there is no subscription.
                     if subscriptions.is_empty() {
                         break;
                     }
-                    mqtt_client.subscribe_many(subscriptions).await?;
+
+                    Connection::subscribe_to_topics(&mqtt_client, subscriptions).await?
                 }
 
                 Ok(Event::Incoming(Packet::SubAck(ack))) => {
@@ -137,6 +168,7 @@ impl Connection {
                 }
 
                 Err(err) => {
+                    error!("MQTT connection error: {err}");
                     let should_delay = Connection::pause_on_error(&err);
 
                     // Errors on send are ignored: it just means the client has closed the receiving channel.
@@ -154,10 +186,12 @@ impl Connection {
     }
 
     async fn receiver_loop(
+        mqtt_client: AsyncClient,
+        config: Config,
         mut event_loop: EventLoop,
         mut message_sender: mpsc::UnboundedSender<Message>,
         mut error_sender: mpsc::UnboundedSender<MqttError>,
-    ) {
+    ) -> Result<(), MqttError> {
         loop {
             match event_loop.poll().await {
                 Ok(Event::Incoming(Packet::Publish(msg))) => {
@@ -166,13 +200,46 @@ impl Connection {
                     let _ = message_sender.send(msg.into()).await;
                 }
 
+                Ok(Event::Incoming(Packet::ConnAck(ack))) => {
+                    if let Some(err) = MqttError::maybe_connection_error(&ack) {
+                        error!("MQTT connection Error {err}");
+                    } else {
+                        info!("MQTT connection re-established");
+                        if let Some(ref imsg_fn) = config.initial_message {
+                            // publish the initial message on connect
+                            let message = imsg_fn.new_init_message();
+                            mqtt_client
+                                .publish(
+                                    message.topic.name.clone(),
+                                    message.qos,
+                                    message.retain,
+                                    message.payload_bytes().to_vec(),
+                                )
+                                .await?;
+                        }
+
+                        if config.session_name.is_none() {
+                            // Workaround for  https://github.com/bytebeamio/rumqtt/issues/250
+                            // If session_name is not provided, then re-subscribe
+
+                            let subscriptions = config.subscriptions.filters();
+                            // Need check here otherwise it will hang waiting for a SubAck, and none will come when there is no subscription.
+                            if subscriptions.is_empty() {
+                                break;
+                            }
+                            Connection::subscribe_to_topics(&mqtt_client, subscriptions).await?;
+                        }
+                    }
+                }
+
                 Ok(Event::Incoming(Incoming::Disconnect))
                 | Ok(Event::Outgoing(Outgoing::Disconnect)) => {
-                    // The connection has been closed
+                    info!("MQTT connection closed");
                     break;
                 }
 
                 Err(err) => {
+                    error!("MQTT connection error: {err}");
                     let delay = Connection::pause_on_error(&err);
 
                     // Errors on send are ignored: it just means the client has closed the receiving channel.
@@ -188,12 +255,14 @@ impl Connection {
         // No more messages will be forwarded to the client
         let _ = message_sender.close().await;
         let _ = error_sender.close().await;
+        Ok(())
     }
 
     async fn sender_loop(
         mqtt_client: AsyncClient,
         mut messages_receiver: mpsc::UnboundedReceiver<Message>,
         mut error_sender: mpsc::UnboundedSender<MqttError>,
+        last_will: Option<Message>,
         done: oneshot::Sender<()>,
     ) {
         loop {
@@ -214,6 +283,15 @@ impl Connection {
                 }
             }
         }
+
+        // As the broker doesn't send the last will when the client disconnects gracefully
+        // one has first to explicitly send the last will message.
+        if let Some(last_will) = last_will {
+            let payload = Vec::from(last_will.payload_bytes());
+            let _ = mqtt_client
+                .publish(last_will.topic, last_will.qos, last_will.retain, payload)
+                .await;
+        }
         let _ = mqtt_client.disconnect().await;
         let _ = done.send(());
     }
@@ -227,12 +305,21 @@ impl Connection {
                 true
             }
             rumqttc::ConnectionError::MqttState(_) => true,
-            rumqttc::ConnectionError::Mqtt4Bytes(_) => true,
             _ => false,
         }
     }
 
     pub(crate) async fn do_pause() {
         sleep(Duration::from_secs(1)).await;
+    }
+
+    pub(crate) async fn subscribe_to_topics(
+        mqtt_client: &AsyncClient,
+        subscriptions: Vec<rumqttc::SubscribeFilter>,
+    ) -> Result<(), MqttError> {
+        mqtt_client
+            .subscribe_many(subscriptions)
+            .await
+            .map_err(MqttError::ClientError)
     }
 }

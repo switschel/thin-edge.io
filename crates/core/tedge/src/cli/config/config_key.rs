@@ -37,6 +37,7 @@ macro_rules! config_key {
 }
 
 impl ConfigKey {
+    #[allow(deprecated)]
     pub fn list_all() -> Vec<ConfigKey> {
         vec![
             config_key!(DeviceIdSetting),
@@ -44,13 +45,26 @@ impl ConfigKey {
             config_key!(DeviceKeyPathSetting),
             config_key!(DeviceCertPathSetting),
             config_key!(C8yUrlSetting),
+            config_key!(C8yHttpSetting),
+            config_key!(C8yMqttSetting),
             config_key!(C8yRootCertPathSetting),
             config_key!(C8ySmartRestTemplates),
             config_key!(AzureUrlSetting),
             config_key!(AzureRootCertPathSetting),
+            config_key!(AwsUrlSetting),
+            config_key!(AwsRootCertPathSetting),
+            config_key!(AwsMapperTimestamp),
             config_key!(AzureMapperTimestamp),
             config_key!(MqttBindAddressSetting),
+            config_key!(HttpBindAddressSetting),
+            config_key!(MqttClientHostSetting),
+            config_key!(MqttClientPortSetting),
+            config_key!(MqttClientCafileSetting),
+            config_key!(MqttClientCapathSetting),
+            config_key!(MqttClientAuthCertSetting),
+            config_key!(MqttClientAuthKeySetting),
             config_key!(MqttPortSetting),
+            config_key!(HttpPortSetting),
             config_key!(MqttExternalPortSetting),
             config_key!(MqttExternalBindAddressSetting),
             config_key!(MqttExternalBindInterfaceSetting),
@@ -61,6 +75,10 @@ impl ConfigKey {
             config_key!(TmpPathSetting),
             config_key!(LogPathSetting),
             config_key!(RunPathSetting),
+            config_key!(DataPathSetting),
+            config_key!(FirmwareChildUpdateTimeoutSetting),
+            config_key!(ServiceTypeSetting),
+            config_key!(LockFilesSetting),
         ]
     }
 }

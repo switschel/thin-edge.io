@@ -1,6 +1,7 @@
 use crate::errors::MqttError;
 use crate::Message;
-use rumqttc::{QoS, SubscribeFilter};
+use rumqttc::QoS;
+use rumqttc::SubscribeFilter;
 use std::convert::TryInto;
 
 /// An MQTT topic
@@ -40,6 +41,12 @@ impl Topic {
 pub struct TopicFilter {
     pub patterns: Vec<String>,
     pub qos: QoS,
+}
+
+impl Default for TopicFilter {
+    fn default() -> Self {
+        TopicFilter::empty()
+    }
 }
 
 impl TopicFilter {

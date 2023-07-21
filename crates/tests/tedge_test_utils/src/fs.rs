@@ -1,24 +1,28 @@
-use std::{
-    fs::{self, OpenOptions},
-    io::Write,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use std::fs;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::os::unix::prelude::OpenOptionsExt;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
-
+#[derive(Debug, Clone)]
 pub struct TempTedgeDir {
     pub temp_dir: Arc<TempDir>,
-    current_file_path: PathBuf,
+    current_file_path: Utf8PathBuf,
 }
 
+#[derive(Debug, Clone)]
 pub struct TempTedgeFile {
-    file_path: PathBuf,
+    pub file_path: PathBuf,
 }
 
 impl Default for TempTedgeDir {
     fn default() -> Self {
         let temp_dir = TempDir::new().unwrap();
-        let current_file_path = temp_dir.path().to_path_buf();
+        let current_file_path = Utf8Path::from_path(temp_dir.path()).unwrap().to_owned();
         TempTedgeDir {
             temp_dir: Arc::new(temp_dir),
             current_file_path,
@@ -32,7 +36,7 @@ impl TempTedgeDir {
     }
 
     pub fn dir(&self, directory_name: &str) -> TempTedgeDir {
-        let root = self.temp_dir.path().to_path_buf();
+        let root = Utf8Path::from_path(self.temp_dir.path()).unwrap();
         let path = root.join(&self.current_file_path).join(directory_name);
 
         if !path.exists() {
@@ -50,17 +54,26 @@ impl TempTedgeDir {
         let path = root.join(&self.current_file_path).join(file_name);
 
         if !path.exists() {
-            let _file = fs::File::create(&path).unwrap();
+            let file = fs::File::create(&path).unwrap();
+            file.sync_all().unwrap();
         };
         TempTedgeFile { file_path: path }
     }
 
     pub fn path(&self) -> &Path {
+        self.current_file_path.as_std_path()
+    }
+
+    pub fn utf8_path(&self) -> &Utf8Path {
         self.current_file_path.as_path()
     }
 
+    pub fn utf8_path_buf(&self) -> Utf8PathBuf {
+        self.current_file_path.clone()
+    }
+
     pub fn to_path_buf(&self) -> PathBuf {
-        PathBuf::from(self.path())
+        self.current_file_path.clone().into_std_path_buf()
     }
 }
 
@@ -72,6 +85,7 @@ impl TempTedgeFile {
             .open(self.file_path)
             .unwrap();
         file.write_all(content.as_bytes()).unwrap();
+        file.sync_all().unwrap();
     }
 
     pub fn with_toml_content(self, content: toml::Value) {
@@ -82,6 +96,7 @@ impl TempTedgeFile {
             .unwrap();
         let file_content = content.to_string();
         file.write_all(file_content.as_bytes()).unwrap();
+        file.sync_all().unwrap();
     }
 
     pub fn delete(self) {
@@ -95,6 +110,18 @@ impl TempTedgeFile {
     pub fn to_path_buf(&self) -> PathBuf {
         PathBuf::from(self.path())
     }
+}
+
+pub fn with_exec_permission(file_path: &Path, content: &str) {
+    let mut file = OpenOptions::new()
+        .mode(0o744)
+        .create_new(true)
+        .write(true)
+        .open(file_path)
+        .unwrap();
+
+    file.write_all(content.as_bytes()).unwrap();
+    file.sync_all().unwrap();
 }
 
 pub fn create_full_tedge_dir_structure() {
@@ -125,7 +152,8 @@ pub fn create_full_tedge_dir_structure() {
 #[cfg(test)]
 mod tests {
     use super::TempTedgeDir;
-    use std::{io::Read, path::Path};
+    use std::io::Read;
+    use std::path::Path;
 
     #[test]
     fn assert_dir_file_and_content() -> Result<(), anyhow::Error> {
@@ -158,20 +186,20 @@ mod tests {
         let tedge_dir = TempTedgeDir::new();
         tedge_dir
             .dir("c8y")
-            .file("c8y_log_plugin.toml")
+            .file("c8y-log-plugin.toml")
             .with_toml_content(toml::toml! {
                 files = [
                     { type = "apt", path = "/var/log/apt/history.log"}
                 ]
             });
         let file_path = &format!(
-            "{}/c8y/c8y_log_plugin.toml",
+            "{}/c8y/c8y-log-plugin.toml",
             &tedge_dir.temp_dir.path().to_str().unwrap()
         );
         assert!(Path::new(&file_path).exists());
 
         let mut file_content = String::new();
-        let mut file = std::fs::File::open(&file_path).unwrap();
+        let mut file = std::fs::File::open(file_path).unwrap();
         file.read_to_string(&mut file_content).unwrap();
 
         let as_toml: toml::Value = toml::from_str(&file_content).unwrap();

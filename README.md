@@ -33,11 +33,13 @@
 </details>
 
 ## Jump right in:
-* [Install thin-edge.io on your device](docs/src/howto-guides/002_installation.md)
-* [Connect your device to Cumulocity](docs/src/tutorials/connect-c8y.md)
-* [Connect your device to Azure](docs/src/tutorials/connect-azure.md)
-* [Find some projects that work together with thin-edge.io](https://github.com/thin-edge/thin-edge.io_examples)
 * [**Explore the Docs**](https://thin-edge.github.io/thin-edge.io/html/)
+* [Install thin-edge.io on your device](https://thin-edge.github.io/thin-edge.io/operate/installation/install)
+* [Getting started with thin-edge.io on a Raspberry Pi](https://thin-edge.github.io/thin-edge.io/start/getting-started)
+* [Connect your device to Cumulocity](https://thin-edge.github.io/thin-edge.io/start/connect-c8y)
+* [Connect your device to Azure](https://thin-edge.github.io/thin-edge.io/start/connect-azure)
+* [Connect your device to AWS](https://thin-edge.github.io/thin-edge.io/start/connect-aws)
+* [Find some projects that work together with thin-edge.io](https://github.com/thin-edge/thin-edge.io_examples)
 <br/>
 <br/>
 
@@ -55,14 +57,14 @@ With thin-edge.io we want to provide re-usable and modular components, which are
 <!-- REFERENCESYSTEMS -->
 
 # Reference Systems
-For an overview of the supported platforms please have a look at the [platform support](docs/src/supported-platforms.md) doc.
+For an overview of the supported platforms please have a look at the [documentation](https://thin-edge.github.io/thin-edge.io/references/supported-platforms).
 <br/>
 <br/>
 
 <!-- ROADMAP -->
 # Roadmap
 
-See the [public roadmap](https://github.com/thin-edge/thin-edge.io-roadmap/projects/1) for a list of items that the maintainers agreed to work on. If you want to propose features to the maintainers or want to contribute a development of yours, it´s always a good idea to get started with a conversation based on an [issue](https://github.com/thin-edge/thin-edge.io/issues).
+If you want to propose features to the maintainers or want to contribute a development of yours, it´s always a good idea to get started with a conversation based on an [issue](https://github.com/thin-edge/thin-edge.io/issues).
 <br/>
 <br/>
 
